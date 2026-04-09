@@ -62,7 +62,7 @@ export const mockProducts: Product[] = [
     id: "prod_1005",
     name: "Sticker Pack — Studio Doodles (5 pc)",
     price: 9.99,
-    image: "/images/sticker-pack1.jpg",
+    image: "/images/sticker-pack2.jpg",
     description:
       "Waterproof vinyl stickers from our original illustrations. Great for laptops and planners.",
     stockStatus: "out_of_stock",
