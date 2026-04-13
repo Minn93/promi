@@ -47,6 +47,20 @@ export function appendPromotion(promotion: Promotion): void {
   }
 }
 
+export function upsertPromotion(promotion: Promotion): void {
+  if (typeof window === "undefined") {
+    throw new Error("localStorage is not available");
+  }
+  const current = loadPromotions();
+  const index = current.findIndex((p) => p.id === promotion.id);
+  const next = index === -1 ? [...current, promotion] : current.map((p) => (p.id === promotion.id ? promotion : p));
+  try {
+    localStorage.setItem(PROMOTIONS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    throw new Error("Could not update localStorage");
+  }
+}
+
 export function removePromotionById(id: string): void {
   if (typeof window === "undefined") {
     throw new Error("localStorage is not available");

@@ -1,11 +1,11 @@
 import { PageHeader } from "@/components/page-header";
-import { ScheduledPromotionsList } from "@/components/scheduled-promotions-list";
+import { ServerScheduledPostsList } from "@/components/server-scheduled-posts-list";
 
 export default function ScheduledPage() {
   return (
     <>
-      <PageHeader title="Scheduled" description="Drafts and scheduled promotions saved on this device." />
-      <ScheduledPromotionsList />
+      <PageHeader title="Scheduled" description="Scheduled promotions tracked on the server." />
+      <ServerScheduledPostsList />
     </>
   );
 }

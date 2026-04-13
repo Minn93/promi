@@ -1,3 +1,5 @@
+import type { InternalPostStatus } from "./post-status";
+
 export type NavItem = {
   label: string;
   href: string;
@@ -20,7 +22,7 @@ export type Product = {
   productUrl: string;
 };
 
-export type PromotionStatus = "draft" | "scheduled";
+export type PromotionStatus = Extract<InternalPostStatus, "draft" | "scheduled">;
 
 /** Saved or scheduled promotion content tied to a catalog product. */
 export type Promotion = {
@@ -28,6 +30,8 @@ export type Promotion = {
   productId: string;
   productName: string;
   productImage: string;
+  /** Draft media references (URL strings for now; can include uploaded file URLs later). */
+  imageRefs?: string[];
   channels: string[];
   tone: string;
   angle: string;

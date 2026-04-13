@@ -1,0 +1,72 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ScheduledPostStatus {
+  draft
+  scheduled
+  processing
+  published
+  failed
+  cancelled
+}
+
+enum PostHistoryEventType {
+  scheduled
+  picked_up
+  published
+  failed
+  cancelled
+  retried
+}
+
+model ScheduledPost {
+  id                  String              @id @default(uuid()) @map("id")
+  productId           String              @map("product_id")
+  productName         String              @map("product_name")
+  imageUrl            String?             @map("image_url")
+  channels            Json                @map("channels")
+  contentPayload      Json                @map("content_payload")
+  scheduledAt         DateTime            @map("scheduled_at") @db.Timestamptz(6)
+  status              ScheduledPostStatus @default(scheduled) @map("status")
+  publishedAt         DateTime?           @map("published_at") @db.Timestamptz(6)
+  lastError           String?             @map("last_error")
+  errorMessage        String?             @map("error_message")
+  processedAt         DateTime?           @map("processed_at") @db.Timestamptz(6)
+  lastAttemptAt       DateTime?           @map("last_attempt_at") @db.Timestamptz(6)
+  attemptCount        Int                 @default(0) @map("attempt_count")
+  idempotencyKey      String?             @unique @map("idempotency_key")
+  processingStartedAt DateTime?           @map("processing_started_at") @db.Timestamptz(6)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  history             PostHistory[]
+
+  @@index([status, scheduledAt], map: "scheduled_posts_status_scheduled_at_idx")
+  @@index([scheduledAt], map: "scheduled_posts_scheduled_at_idx")
+  @@map("scheduled_posts")
+}
+
+model PostHistory {
+  id              String               @id @default(uuid()) @map("id")
+  scheduledPostId String               @map("scheduled_post_id")
+  eventType       PostHistoryEventType @map("event_type")
+  channel         String?              @map("channel")
+  message         String?              @map("message")
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  scheduledPost ScheduledPost @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledPostId, createdAt], map: "post_history_scheduled_post_id_created_at_idx")
+  @@map("post_history")
+}

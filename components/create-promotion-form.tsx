@@ -4,8 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PreviewCard } from "@/components/preview-card";
-import { appendPromotion, readPromotions } from "@/lib/promotions-storage";
-import type { Product, Promotion, PromotionStatus } from "@/lib/types";
+import { readPromotions, upsertPromotion } from "@/lib/promotions-storage";
+import type { Product, Promotion } from "@/lib/types";
 
 const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -96,13 +96,14 @@ function buildPromotionPayload(
   channelIds: string[],
   copy: PromotionCopy,
   scheduledAt: string | null,
-  status: PromotionStatus,
+  existingId?: string,
 ): Promotion {
   return {
-    id: crypto.randomUUID(),
+    id: existingId ?? crypto.randomUUID(),
     productId: product.id,
     productName: product.name,
     productImage: product.image,
+    imageRefs: [product.image],
     channels: channelIds,
     tone: toneLabel,
     angle: angleLabel,
@@ -111,7 +112,7 @@ function buildPromotionPayload(
     pinterestDescription: copy.pinterestDescription,
     hashtags: copy.hashtags,
     scheduledAt,
-    status,
+    status: "draft",
   };
 }
 
@@ -267,7 +268,7 @@ export function CreatePromotionForm({ product, invalidProductId, promotionId }: 
     }
   };
 
-  const persistPromotion = (status: PromotionStatus, scheduledAt: string | null) => {
+  const persistDraft = (scheduledAt: string | null) => {
     if (!product) return;
     const channelIds = CHANNELS.filter(({ id }) => channels[id]).map(({ id }) => id);
     const tl = TONES.find((t) => t.id === tone)?.label ?? tone;
@@ -279,16 +280,12 @@ export function CreatePromotionForm({ product, invalidProductId, promotionId }: 
       channelIds,
       copyRef.current,
       scheduledAt,
-      status,
+      promotionId?.trim(),
     );
     try {
-      appendPromotion(record);
+      upsertPromotion(record);
       setScheduleError(null);
-      setSaveNotice(
-        status === "draft"
-          ? "Draft saved on this device."
-          : "Promotion scheduled on this device.",
-      );
+      setSaveNotice("Draft saved on this device.");
     } catch {
       setSaveNotice(null);
       setScheduleError(
@@ -304,14 +301,14 @@ export function CreatePromotionForm({ product, invalidProductId, promotionId }: 
     queueMicrotask(() => {
       try {
         const scheduledAt = combineLocalDateTime(scheduleDate, scheduleTime);
-        persistPromotion("draft", scheduledAt);
+        persistDraft(scheduledAt);
       } finally {
         window.setTimeout(() => setPersistKind(null), 220);
       }
     });
   };
 
-  const handleSchedulePromotion = () => {
+  const handleSchedulePromotion = async () => {
     if (!product || persistKind) return;
     setSaveNotice(null);
     if (!scheduleDate.trim() || !scheduleTime.trim()) {
@@ -323,15 +320,48 @@ export function CreatePromotionForm({ product, invalidProductId, promotionId }: 
       setScheduleError("We could not read that date and time. Try again.");
       return;
     }
+    if (new Date(scheduledAt).getTime() <= Date.now()) {
+      setScheduleError("Choose a future date and time for scheduling.");
+      return;
+    }
+
     setScheduleError(null);
     setPersistKind("schedule");
-    queueMicrotask(() => {
-      try {
-        persistPromotion("scheduled", scheduledAt);
-      } finally {
-        window.setTimeout(() => setPersistKind(null), 220);
+    const selectedChannels = CHANNELS.filter(({ id }) => channels[id]).map(({ id }) => id);
+    const tl = TONES.find((t) => t.id === tone)?.label ?? tone;
+    const al = ANGLES.find((a) => a.id === angle)?.label ?? angle;
+
+    try {
+      const res = await fetch("/api/scheduled-posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: product.id,
+          productName: product.name,
+          imageUrl: product.image,
+          channels: selectedChannels,
+          contentPayload: {
+            tone: tl,
+            angle: al,
+            instagramCaption: copyRef.current.instagramCaption,
+            pinterestTitle: copyRef.current.pinterestTitle,
+            pinterestDescription: copyRef.current.pinterestDescription,
+            hashtags: copyRef.current.hashtags,
+          },
+          scheduledAt,
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string; details?: string } | null;
+      if (!res.ok) {
+        setScheduleError(body?.error || body?.details || "Could not schedule this promotion right now.");
+        return;
       }
-    });
+      setSaveNotice("Promotion scheduled.");
+    } catch {
+      setScheduleError("Could not schedule this promotion right now.");
+    } finally {
+      window.setTimeout(() => setPersistKind(null), 220);
+    }
   };
 
   const previewCaption = instagramCaption || "Caption preview";
@@ -642,7 +672,7 @@ export function CreatePromotionForm({ product, invalidProductId, promotionId }: 
             </button>
             <button
               type="button"
-              onClick={handleSchedulePromotion}
+              onClick={() => void handleSchedulePromotion()}
               disabled={persistKind !== null}
               aria-busy={persistKind === "schedule"}
               className={BTN_PRIMARY_SM}

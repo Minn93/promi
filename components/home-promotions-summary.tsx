@@ -60,6 +60,10 @@ export function HomePromotionsSummary() {
           )}
           {total > 0 ? (
             <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+              <Link href="/drafts" className="font-medium text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-300">
+                Drafts
+              </Link>
+              {" · "}
               <Link href="/scheduled" className="font-medium text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-300">
                 Scheduled
               </Link>

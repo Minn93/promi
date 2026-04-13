@@ -35,7 +35,15 @@ function contentPreview(p: Promotion): string {
   return `${text.slice(0, 137)}…`;
 }
 
-export function ScheduledPromotionsList() {
+type ScheduledPromotionsListProps = {
+  statusFilter?: Promotion["status"] | "all";
+  emptySuffix?: string;
+};
+
+export function ScheduledPromotionsList({
+  statusFilter = "all",
+  emptySuffix = "and save a draft or schedule it on the Create page.",
+}: ScheduledPromotionsListProps) {
   const [items, setItems] = useState<Promotion[]>([]);
   const [mounted, setMounted] = useState(false);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
@@ -44,10 +52,15 @@ export function ScheduledPromotionsList() {
   const refresh = useCallback(() => {
     const result = readPromotions();
     setStorageWarning(result.warning ?? null);
-    setItems([...result.items].reverse());
-  }, []);
+    const next =
+      statusFilter === "all"
+        ? result.items
+        : result.items.filter((item) => item.status === statusFilter);
+    setItems([...next].reverse());
+  }, [statusFilter]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount flag is intentional for first-client-render skeleton
     setMounted(true);
     refresh();
   }, [refresh]);
@@ -107,7 +120,7 @@ export function ScheduledPromotionsList() {
           <Link href="/products" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
             Products
           </Link>{" "}
-          and save a draft or schedule it on the Create page.
+          {emptySuffix}
         </p>
       </div>
     );
