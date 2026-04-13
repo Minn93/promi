@@ -1,4 +1,4 @@
-import type { ScheduledPost } from "@/lib/generated/prisma/client";
+import type { ScheduledPost } from "@prisma/client";
 
 export type PublishResult = {
   message: string;
