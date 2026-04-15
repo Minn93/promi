@@ -5,6 +5,8 @@ import type { InternalPostStatus } from "@/lib/post-status";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 type ScheduledPostStatus = Extract<
   InternalPostStatus,
   "scheduled" | "processing" | "published" | "failed" | "cancelled"
@@ -204,7 +206,14 @@ export async function GET(request: Request) {
       orderBy: [{ scheduledAt: "asc" }, { createdAt: "desc" }],
       take: limit,
     });
-    return NextResponse.json({ data: rows });
+    return NextResponse.json(
+      { data: rows },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return apiError({ status: 500, code: "LIST_FAILED", message: "Failed to list scheduled posts.", details: message });

@@ -3,6 +3,8 @@ import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function asNonEmptyString(v: unknown): string | null {
   if (typeof v !== "string") return null;
@@ -29,7 +31,14 @@ export async function GET(request: Request) {
       orderBy: [{ createdAt: "desc" }],
       take: limit,
     });
-    return NextResponse.json({ data: rows });
+    return NextResponse.json(
+      { data: rows },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      },
+    );
   } catch (err) {
     const details = err instanceof Error ? err.message : "Unknown error";
     return apiError({ status: 500, code: "LIST_FAILED", message: "Failed to list post history.", details });
