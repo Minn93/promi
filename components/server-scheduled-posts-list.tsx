@@ -14,6 +14,10 @@ type ScheduledPost = {
   lastError: string | null;
 };
 
+const REFRESH_EVENT = "promi:scheduled-posts-updated";
+const POLL_INTERVAL_MS = 5000;
+const OVERDUE_TICK_MS = 1000;
+
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -52,12 +56,22 @@ function readPreview(raw: unknown): string {
   return text.length <= 140 ? text : `${text.slice(0, 137)}…`;
 }
 
-function statusClassName(status: ScheduledPost["status"]): string {
+function statusClassName(status: ScheduledPost["status"], isOverdue: boolean): string {
+  if (isOverdue) return "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
   if (status === "scheduled") return "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900";
   if (status === "processing") return "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
-  if (status === "published") return "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900";
+  if (status === "published") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
   if (status === "failed") return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300";
-  return "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+  return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+}
+
+function statusLabel(status: ScheduledPost["status"], isOverdue: boolean): string {
+  if (isOverdue) return "Processing...";
+  if (status === "scheduled") return "Scheduled";
+  if (status === "processing") return "Processing";
+  if (status === "published") return "Published";
+  if (status === "failed") return "Failed";
+  return "Cancelled";
 }
 
 export function ServerScheduledPostsList() {
@@ -66,6 +80,7 @@ export function ServerScheduledPostsList() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -86,7 +101,33 @@ export function ServerScheduledPostsList() {
 
   useEffect(() => {
     void refresh();
+
+    const intervalId = window.setInterval(() => {
+      void refresh();
+    }, POLL_INTERVAL_MS);
+
+    const onFocus = () => {
+      void refresh();
+    };
+    const onUpdated = () => {
+      void refresh();
+    };
+
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(REFRESH_EVENT, onUpdated);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(REFRESH_EVENT, onUpdated);
+    };
   }, [refresh]);
+
+  useEffect(() => {
+    const tickId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, OVERDUE_TICK_MS);
+    return () => window.clearInterval(tickId);
+  }, []);
 
   const handleCancel = async (id: string) => {
     setActionError(null);
@@ -122,7 +163,7 @@ export function ServerScheduledPostsList() {
             {error}
           </p>
         ) : null}
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">No scheduled posts on the server yet.</p>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">No scheduled posts yet. New scheduled posts will show up here.</p>
       </div>
     );
   }
@@ -141,6 +182,10 @@ export function ServerScheduledPostsList() {
       ) : null}
       <ul className="space-y-3">
         {items.map((p) => (
+          (() => {
+            const scheduledAtMs = new Date(p.scheduledAt).getTime();
+            const isOverdue = Number.isFinite(scheduledAtMs) && p.status === "scheduled" && scheduledAtMs <= nowMs;
+            return (
           <li
             key={p.id}
             className="promi-card-lift flex flex-col gap-4 rounded-lg border border-zinc-200 bg-white p-4 transition-[box-shadow,transform,border-color] duration-200 ease-out dark:border-zinc-800 dark:bg-zinc-950 sm:flex-row sm:items-start"
@@ -153,8 +198,8 @@ export function ServerScheduledPostsList() {
             <div className="min-w-0 flex-1 space-y-2">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{p.productName}</h2>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusClassName(p.status)}`}>
-                  {p.status}
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusClassName(p.status, isOverdue)}`}>
+                  {statusLabel(p.status, isOverdue)}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -180,13 +225,15 @@ export function ServerScheduledPostsList() {
               <button
                 type="button"
                 onClick={() => void handleCancel(p.id)}
-                disabled={cancellingId === p.id || p.status === "cancelled" || p.status === "published"}
+                disabled={cancellingId === p.id || p.status === "cancelled" || p.status === "published" || isOverdue}
                 className="promi-press inline-flex flex-1 items-center justify-center rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-red-200/80 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-red-900/50 dark:hover:bg-red-950/40 dark:hover:text-red-300 sm:flex-none"
               >
                 {cancellingId === p.id ? "Cancelling..." : "Cancel"}
               </button>
             </div>
           </li>
+            );
+          })()
         ))}
       </ul>
     </div>
