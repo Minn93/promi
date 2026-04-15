@@ -16,7 +16,7 @@ function isAuthorized(request: Request): boolean {
   return auth === `Bearer ${secret}`;
 }
 
-export async function POST(request: Request) {
+async function handleProcessDueScheduledPosts(request: Request) {
   if (!isAuthorized(request)) {
     return unauthorized();
   }
@@ -147,4 +147,12 @@ export async function POST(request: Request) {
       details: message,
     });
   }
+}
+
+export async function POST(request: Request) {
+  return handleProcessDueScheduledPosts(request);
+}
+
+export async function GET(request: Request) {
+  return handleProcessDueScheduledPosts(request);
 }
