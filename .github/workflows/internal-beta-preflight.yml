@@ -1,15 +1,18 @@
 name: Internal Beta Preflight
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  preflight:
+  internal-beta-preflight:
     runs-on: ubuntu-latest
+
     env:
       NODE_ENV: production
       PROMI_INTERNAL_BETA_MODE: "1"
@@ -23,12 +26,13 @@ jobs:
       X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
       X_OAUTH_REDIRECT_URI: ${{ vars.X_OAUTH_REDIRECT_URI }}
       X_REAL_PUBLISHING: ${{ vars.X_REAL_PUBLISHING }}
-      X_API_BASE_URL: ${{ vars.X_API_BASE_URL }}
+      DEFAULT_X_API_BASE_URL: ${{ vars.DEFAULT_X_API_BASE_URL }}
+
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -37,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Internal beta config validation
+      - name: Validate internal beta config
         run: npm run check:internal-beta
 
       - name: Build
