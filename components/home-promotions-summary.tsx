@@ -12,13 +12,20 @@ export function HomePromotionsSummary() {
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-    const result = readPromotions();
-    setStorageWarning(result.warning ?? null);
-    const items = result.items;
-    setTotal(items.length);
-    setDrafts(items.filter((p) => p.status === "draft").length);
-    setScheduled(items.filter((p) => p.status === "scheduled").length);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setMounted(true);
+      const result = readPromotions();
+      setStorageWarning(result.warning ?? null);
+      const items = result.items;
+      setTotal(items.length);
+      setDrafts(items.filter((p) => p.status === "draft").length);
+      setScheduled(items.filter((p) => Boolean(p.scheduledAt)).length);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -55,7 +62,7 @@ export function HomePromotionsSummary() {
               draft{drafts === 1 ? "" : "s"}
               <span className="text-zinc-400 dark:text-zinc-500"> · </span>
               <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">{scheduled}</span>{" "}
-              scheduled
+              with picked date/time
             </p>
           )}
           {total > 0 ? (
@@ -67,6 +74,8 @@ export function HomePromotionsSummary() {
               <Link href="/scheduled" className="font-medium text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-300">
                 Scheduled
               </Link>
+              {" · "}
+              <span>Server queue lives under Scheduled/History</span>
               {" · "}
               <Link href="/performance" className="font-medium text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-300">
                 Performance

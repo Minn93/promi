@@ -84,8 +84,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    console.log("OPENAI KEY EXISTS:", !!process.env.OPENAI_API_KEY);
-
     const result = await generatePromotionContent(toHelperInput(input));
 
     return NextResponse.json(result);

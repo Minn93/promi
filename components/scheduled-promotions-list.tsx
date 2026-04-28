@@ -42,7 +42,7 @@ type ScheduledPromotionsListProps = {
 
 export function ScheduledPromotionsList({
   statusFilter = "all",
-  emptySuffix = "and save a draft or schedule it on the Create page.",
+  emptySuffix = "and save your first draft or scheduled post on the Create page.",
 }: ScheduledPromotionsListProps) {
   const [items, setItems] = useState<Promotion[]>([]);
   const [mounted, setMounted] = useState(false);
@@ -116,7 +116,7 @@ export function ScheduledPromotionsList({
           </p>
         ) : null}
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          No saved promotions yet. Start in{" "}
+          No drafts yet. Start in{" "}
           <Link href="/products" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
             Products
           </Link>{" "}

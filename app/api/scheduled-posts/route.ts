@@ -3,19 +3,23 @@ import { Prisma } from "@prisma/client";
 import { apiError } from "@/lib/api-errors";
 import type { InternalPostStatus } from "@/lib/post-status";
 import { prisma } from "@/lib/prisma";
+import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { getPlanConfig, isLimitReached } from "@/src/lib/plans/config";
+import { getCurrentPlanTier } from "@/src/lib/plans/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 type ScheduledPostStatus = Extract<
   InternalPostStatus,
-  "scheduled" | "processing" | "published" | "failed" | "cancelled"
+  "scheduled" | "processing" | "published" | "failed" | "needs_reconnect" | "cancelled"
 >;
 const VALID_STATUSES = new Set<ScheduledPostStatus>([
   "scheduled",
   "processing",
   "published",
   "failed",
+  "needs_reconnect",
   "cancelled",
 ]);
 
@@ -27,6 +31,8 @@ type CreateScheduledPostBody = {
   contentPayload: Record<string, unknown>;
   scheduledAt: string;
   idempotencyKey?: string;
+  platform?: "x" | "instagram" | "facebook";
+  accountId?: string | null;
 };
 
 function asNonEmptyString(v: unknown): string | null {
@@ -53,6 +59,9 @@ function parseCreateBody(raw: unknown): CreateScheduledPostBody | null {
 
   const imageUrl = o.imageUrl == null ? null : asNonEmptyString(o.imageUrl);
   const idempotencyKey = o.idempotencyKey == null ? undefined : asNonEmptyString(o.idempotencyKey) ?? undefined;
+  const platformRaw = asNonEmptyString(o.platform);
+  const platform = platformRaw === "x" || platformRaw === "instagram" || platformRaw === "facebook" ? platformRaw : undefined;
+  const accountId = o.accountId == null ? null : asNonEmptyString(o.accountId);
 
   return {
     productId,
@@ -62,12 +71,23 @@ function parseCreateBody(raw: unknown): CreateScheduledPostBody | null {
     contentPayload: o.contentPayload as Record<string, unknown>,
     scheduledAt,
     idempotencyKey,
+    platform,
+    accountId,
   };
 }
 
 function parseDate(iso: string): Date | null {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolvePlatform(body: CreateScheduledPostBody): "x" | "instagram" | "facebook" {
+  if (body.platform === "x" || body.platform === "instagram" || body.platform === "facebook") {
+    return body.platform;
+  }
+  if (body.channels.includes("x")) return "x";
+  if (body.channels.includes("facebook")) return "facebook";
+  return "instagram";
 }
 
 function hasNonEmptyContent(payload: Record<string, unknown>): boolean {
@@ -92,7 +112,6 @@ export async function POST(request: Request) {
   let bodyRaw: unknown;
   try {
     bodyRaw = await request.json();
-    console.info("[api/scheduled-posts][POST] request body:", bodyRaw);
   } catch {
     return apiError({ status: 400, code: "INVALID_JSON", message: "Invalid JSON body." });
   }
@@ -119,8 +138,6 @@ export async function POST(request: Request) {
   }
 
   const scheduledAt = parseDate(body.scheduledAt);
-  console.info("[api/scheduled-posts][POST] scheduledAt raw:", body.scheduledAt);
-  console.info("[api/scheduled-posts][POST] scheduledAt parsed:", scheduledAt?.toISOString() ?? null);
   if (!scheduledAt) {
     return apiError({
       status: 400,
@@ -136,9 +153,41 @@ export async function POST(request: Request) {
     });
   }
 
+  const ownerId = getCurrentOwnerId();
+  const planTier = getCurrentPlanTier();
+  const plan = getPlanConfig(planTier);
+  const activeScheduledCount = await prisma.scheduledPost.count({
+    where: {
+      status: { in: ["scheduled", "processing", "failed", "needs_reconnect"] },
+    },
+  });
+  if (isLimitReached(activeScheduledCount, plan.limits.scheduledPostsActive)) {
+    return apiError({
+      status: 403,
+      code: "PLAN_LIMIT_SCHEDULED_POSTS",
+      message:
+        `You have reached your ${plan.label} limit of ${plan.limits.scheduledPostsActive} active scheduled posts. Upgrade to Pro to schedule more.`,
+      details: `owner=${ownerId}; plan=${planTier}; activeScheduled=${activeScheduledCount}`,
+    });
+  }
+
   try {
     const created = await prisma.$transaction(async (tx) => {
-      console.info("[api/scheduled-posts][POST] creating scheduledPost");
+      const platform = resolvePlatform(body);
+      if (body.accountId) {
+        const account = await tx.connectedAccount.findFirst({
+          where: {
+            id: body.accountId,
+            ownerId,
+            platform,
+            status: "active",
+          },
+        });
+        if (!account) {
+          throw new Error("Selected account is not available for this platform.");
+        }
+      }
+
       const row = await tx.scheduledPost
         .create({
           data: {
@@ -148,6 +197,8 @@ export async function POST(request: Request) {
             channels: body.channels as Prisma.InputJsonValue,
             contentPayload: body.contentPayload as Prisma.InputJsonValue,
             scheduledAt,
+            platform,
+            accountId: body.accountId ?? null,
             idempotencyKey: body.idempotencyKey,
           },
         })
@@ -158,7 +209,6 @@ export async function POST(request: Request) {
           );
         });
 
-      console.info("[api/scheduled-posts][POST] creating postHistory row");
       await tx.postHistory
         .create({
           data: {
@@ -187,15 +237,33 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const summary = asNonEmptyString(searchParams.get("summary"));
   const statusRaw = asNonEmptyString(searchParams.get("status"));
   const limitRaw = Number(searchParams.get("limit") ?? "50");
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+
+  if (summary === "active_count") {
+    try {
+      const activeCount = await prisma.scheduledPost.count({
+        where: {
+          status: { in: ["scheduled", "processing", "failed", "needs_reconnect"] },
+        },
+      });
+      return NextResponse.json(
+        { data: { activeScheduledPosts: activeCount } },
+        { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return apiError({ status: 500, code: "COUNT_FAILED", message: "Failed to count active scheduled posts.", details: message });
+    }
+  }
 
   if (statusRaw && !VALID_STATUSES.has(statusRaw as ScheduledPostStatus)) {
     return apiError({
       status: 400,
       code: "INVALID_STATUS",
-      message: "Invalid status filter. Use scheduled, processing, published, failed, or cancelled.",
+      message: "Invalid status filter. Use scheduled, processing, published, failed, needs_reconnect, or cancelled.",
     });
   }
   const status = (statusRaw ?? undefined) as ScheduledPostStatus | undefined;
@@ -206,14 +274,12 @@ export async function GET(request: Request) {
       orderBy: [{ scheduledAt: "asc" }, { createdAt: "desc" }],
       take: limit,
     });
-    return NextResponse.json(
-      { data: rows },
-      {
-        headers: {
-          "Cache-Control": "no-store, no-cache, must-revalidate",
-        },
+
+    return NextResponse.json({ data: rows }, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
       },
-    );
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return apiError({ status: 500, code: "LIST_FAILED", message: "Failed to list scheduled posts.", details: message });

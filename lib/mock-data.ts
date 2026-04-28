@@ -8,7 +8,9 @@ export const dashboardNavItems: NavItem[] = [
   { label: "Drafts", href: "/drafts" },
   { label: "Scheduled", href: "/scheduled" },
   { label: "History", href: "/history" },
+  { label: "Analytics", href: "/analytics" },
   { label: "Performance", href: "/performance" },
+  { label: "Settings", href: "/settings" },
 ];
 
 /**

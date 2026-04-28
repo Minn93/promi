@@ -4,7 +4,10 @@ import { ServerScheduledPostsList } from "@/components/server-scheduled-posts-li
 export default function ScheduledPage() {
   return (
     <>
-      <PageHeader title="Scheduled" description="Scheduled promotions tracked on the server." />
+      <PageHeader
+        title="Scheduled"
+        description="Server publishing queue. Posts are picked up automatically and may run a short time after the exact scheduled minute."
+      />
       <ServerScheduledPostsList />
     </>
   );

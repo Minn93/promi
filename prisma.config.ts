@@ -7,7 +7,10 @@ import { defineConfig } from "prisma/config";
 
 const cwd = process.cwd();
 const envPath = path.resolve(cwd, ".env");
+const envLocalPath = path.resolve(cwd, ".env.local");
+// Match Next.js: base `.env`, then `.env.local` overrides (Prisma CLI / Studio use this file only).
 dotenv.config({ path: envPath });
+dotenv.config({ path: envLocalPath, override: true });
 
 const prismaConfigUrl = process.env["DATABASE_URL"];
 if (process.env.PRISMA_DEBUG_DATABASE_URL === "1") {
@@ -17,7 +20,9 @@ if (process.env.PRISMA_DEBUG_DATABASE_URL === "1") {
   );
   console.info("[prisma-config] cwd =", cwd);
   console.info("[prisma-config] envPath =", envPath);
+  console.info("[prisma-config] envLocalPath =", envLocalPath);
   console.info("[prisma-config] envExists =", fs.existsSync(envPath));
+  console.info("[prisma-config] envLocalExists =", fs.existsSync(envLocalPath));
   console.info("[prisma-config] DATABASE_URL =", masked || "<empty>");
 }
 

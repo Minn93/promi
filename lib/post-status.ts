@@ -4,6 +4,7 @@ export const INTERNAL_POST_STATUSES = [
   "processing",
   "published",
   "failed",
+  "needs_reconnect",
   "cancelled",
 ] as const;
 
@@ -15,5 +16,6 @@ export const POST_STATUS_LABELS: Record<InternalPostStatus, string> = {
   processing: "Processing",
   published: "Published",
   failed: "Failed",
+  needs_reconnect: "Needs Reconnect",
   cancelled: "Cancelled",
 };

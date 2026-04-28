@@ -1,6 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { HomePromotionsSummary } from "@/components/home-promotions-summary";
+import { QuickStartOnboarding } from "@/components/quick-start-onboarding";
+import { ReliabilitySummary } from "@/components/reliability-summary";
 import { mockProducts } from "@/lib/mock-data";
 
 const usd = new Intl.NumberFormat("en-US", {
@@ -15,20 +17,22 @@ export default function HomePage() {
 
   return (
     <div className="space-y-10">
-      <section className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 md:p-10">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 md:text-3xl">
+      <section aria-labelledby="home-hero-heading" className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 md:p-10">
+        <h1 id="home-hero-heading" className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 md:text-3xl">
           Pick a product. Finish your promotion.
         </h1>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 md:text-base">
-          Promi helps new Shopify sellers turn catalog items into ready-to-post promos—without juggling
-          five tabs. Start from a product, add your angle, and ship it to email or social.
+          Promi helps new sellers turn product ideas into social promotions in one flow. Pick a
+          product, generate/edit copy, then save a draft or schedule a post.
         </p>
       </section>
 
       <HomePromotionsSummary />
+      <ReliabilitySummary />
+      <QuickStartOnboarding />
 
-      <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+      <section aria-labelledby="home-suggested-products-heading">
+        <h2 id="home-suggested-products-heading" className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           Suggested products to promote
         </h2>
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -17,7 +17,26 @@ enum ScheduledPostStatus {
   processing
   published
   failed
+  needs_reconnect
   cancelled
+}
+
+enum Platform {
+  x
+  instagram
+  facebook
+}
+
+enum ConnectedAccountStatus {
+  active
+  expired
+  revoked
+  error
+}
+
+enum PublishAttemptStatus {
+  success
+  failed
 }
 
 enum PostHistoryEventType {
@@ -38,6 +57,11 @@ model ScheduledPost {
   contentPayload      Json                @map("content_payload")
   scheduledAt         DateTime            @map("scheduled_at") @db.Timestamptz(6)
   status              ScheduledPostStatus @default(scheduled) @map("status")
+  platform            Platform            @default(instagram) @map("platform")
+  accountId           String?             @map("account_id")
+  providerPostId      String?             @map("provider_post_id")
+  providerUrl         String?             @map("provider_url")
+  errorCode           String?             @map("error_code")
   publishedAt         DateTime?           @map("published_at") @db.Timestamptz(6)
   lastError           String?             @map("last_error")
   errorMessage        String?             @map("error_message")
@@ -50,9 +74,13 @@ model ScheduledPost {
   updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   history             PostHistory[]
+  account             ConnectedAccount?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  attempts            PublishAttempt[]
 
   @@index([status, scheduledAt], map: "scheduled_posts_status_scheduled_at_idx")
   @@index([scheduledAt], map: "scheduled_posts_scheduled_at_idx")
+  @@index([platform, status], map: "scheduled_posts_platform_status_idx")
+  @@index([accountId], map: "scheduled_posts_account_id_idx")
   @@map("scheduled_posts")
 }
 
@@ -68,4 +96,48 @@ model PostHistory {
 
   @@index([scheduledPostId, createdAt], map: "post_history_scheduled_post_id_created_at_idx")
   @@map("post_history")
+}
+
+model ConnectedAccount {
+  id               String               @id @default(uuid()) @map("id")
+  ownerId          String               @default("local-dev-user") @map("owner_id")
+  platform         Platform             @map("platform")
+  status           ConnectedAccountStatus @default(active) @map("status")
+  externalAccountId String?             @map("external_account_id")
+  displayName      String?              @map("display_name")
+  accessToken      String?              @map("access_token")
+  refreshToken     String?              @map("refresh_token")
+  tokenExpiresAt   DateTime?            @map("token_expires_at") @db.Timestamptz(6)
+  metadataJson     Json?                @map("metadata_json")
+  lastError        String?              @map("last_error")
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  posts    ScheduledPost[]
+  attempts PublishAttempt[]
+
+  @@index([platform, status], map: "connected_accounts_platform_status_idx")
+  @@index([ownerId, platform, status], map: "connected_accounts_owner_platform_status_idx")
+  @@map("connected_accounts")
+}
+
+model PublishAttempt {
+  id            String             @id @default(uuid()) @map("id")
+  scheduledPostId String           @map("scheduled_post_id")
+  accountId     String?            @map("account_id")
+  platform      Platform           @map("platform")
+  status        PublishAttemptStatus @map("status")
+  errorCode     String?            @map("error_code")
+  errorMessage  String?            @map("error_message")
+  providerPostId String?           @map("provider_post_id")
+  providerUrl   String?            @map("provider_url")
+  rawResponse   Json?              @map("raw_response")
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  scheduledPost ScheduledPost      @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+  account       ConnectedAccount?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([scheduledPostId, createdAt], map: "publish_attempts_scheduled_post_id_created_at_idx")
+  @@index([platform, status], map: "publish_attempts_platform_status_idx")
+  @@map("publish_attempts")
 }

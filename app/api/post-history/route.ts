@@ -30,9 +30,27 @@ export async function GET(request: Request) {
       where: scheduledPostId ? { scheduledPostId } : undefined,
       orderBy: [{ createdAt: "desc" }],
       take: limit,
+      include: {
+        scheduledPost: {
+          select: {
+            status: true,
+            platform: true,
+          },
+        },
+      },
     });
+    const data = rows.map((row) => ({
+      id: row.id,
+      scheduledPostId: row.scheduledPostId,
+      eventType: row.eventType,
+      channel: row.channel,
+      message: row.message,
+      createdAt: row.createdAt,
+      status: row.scheduledPost?.status ?? null,
+      platform: row.scheduledPost?.platform ?? null,
+    }));
     return NextResponse.json(
-      { data: rows },
+      { data },
       {
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate",

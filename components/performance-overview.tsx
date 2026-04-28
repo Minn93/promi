@@ -105,7 +105,11 @@ function KpiCard({
   valueSize?: "number" | "text";
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+    <div
+      className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
+      role="group"
+      aria-label={`${label}: ${String(value)}${hint ? `. ${hint}` : ""}`}
+    >
       <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
       <p
         className={`mt-1 font-semibold text-zinc-900 dark:text-zinc-50 ${
@@ -127,10 +131,17 @@ export function PerformanceOverview() {
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-    const result = readPromotions();
-    setStorageWarning(result.warning ?? null);
-    setPromotions(result.items);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setMounted(true);
+      const result = readPromotions();
+      setStorageWarning(result.warning ?? null);
+      setPromotions(result.items);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const stats = useMemo(() => {
@@ -145,7 +156,11 @@ export function PerformanceOverview() {
   }, [promotions]);
 
   if (!mounted) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p>;
+    return (
+      <p className="text-sm text-zinc-500 dark:text-zinc-400" role="status" aria-live="polite">
+        Loading...
+      </p>
+    );
   }
 
   if (promotions.length === 0) {
@@ -169,8 +184,8 @@ export function PerformanceOverview() {
 
   return (
     <div className="space-y-10">
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Overview</h2>
+      <section aria-labelledby="performance-overview-heading" className="space-y-3">
+        <h2 id="performance-overview-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Overview</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard label="Total promotions" value={stats.total} />
           <KpiCard label="Scheduled" value={stats.scheduled} />
@@ -184,8 +199,8 @@ export function PerformanceOverview() {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Channel breakdown</h2>
+      <section aria-labelledby="performance-channel-breakdown-heading" className="space-y-3">
+        <h2 id="performance-channel-breakdown-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Channel breakdown</h2>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Number of saved promotions that include each channel (one promotion can include both).
         </p>
@@ -201,8 +216,8 @@ export function PerformanceOverview() {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Recent promotions</h2>
+      <section aria-labelledby="performance-recent-promotions-heading" className="space-y-3">
+        <h2 id="performance-recent-promotions-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Recent promotions</h2>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">Your 5 most recently saved promotions.</p>
         {stats.recent.length === 0 ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">No promotions saved yet.</p>
@@ -213,6 +228,9 @@ export function PerformanceOverview() {
                 key={p.id}
                 className="rounded-lg border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-950"
               >
+                <p className="sr-only">
+                  Promotion summary: {p.productName}. Status {p.status === "scheduled" ? "Scheduled" : "Draft"}. Channels {formatChannels(p.channels)}. Scheduled for {formatScheduledAt(p.scheduledAt)}.
+                </p>
                 <p className="font-medium text-zinc-900 dark:text-zinc-50">{p.productName}</p>
                 <dl className="mt-2 space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
                   <div className="flex flex-wrap gap-x-2">
@@ -234,8 +252,8 @@ export function PerformanceOverview() {
         )}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Suggested next steps</h2>
+      <section aria-labelledby="performance-next-steps-heading" className="space-y-3">
+        <h2 id="performance-next-steps-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Suggested next steps</h2>
         <div className="rounded-lg border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/30">
           {storageWarning ? (
             <p className="mb-3 text-sm text-red-600 dark:text-red-400" role="alert">
@@ -248,9 +266,9 @@ export function PerformanceOverview() {
             ))}
           </ul>
           <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-            Based on promotions in this browser. View the full list on{" "}
+            Based on promotions in this browser. Open{" "}
             <Link href="/scheduled" className="font-medium underline underline-offset-2">
-              Scheduled
+              Scheduled queue
             </Link>
             .
           </p>
