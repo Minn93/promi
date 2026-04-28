@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
+export const dynamic = "force-dynamic";
+
 type Platform = "x" | "instagram" | "facebook";
 
 type RawResponseObject = Record<string, unknown>;
