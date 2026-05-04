@@ -91,9 +91,11 @@ function extractPreview(contentPayload: unknown): string {
 }
 
 export default async function AnalyticsPage() {
-  const planTier = getPlanTierForOwner(getCurrentOwnerId());
+  const ownerId = await getCurrentOwnerId();
+  const planTier = getPlanTierForOwner(ownerId);
   const rows = await prisma.scheduledPost.findMany({
     where: {
+      ownerId,
       status: "published",
       publishedAt: { not: null },
     },
@@ -105,7 +107,7 @@ export default async function AnalyticsPage() {
       contentPayload: true,
       publishedAt: true,
       attempts: {
-        where: { status: "success" },
+        where: { status: "success", ownerId },
         orderBy: { createdAt: "desc" },
         take: 1,
         select: { rawResponse: true },

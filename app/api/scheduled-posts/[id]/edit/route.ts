@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
+import { getCurrentOwnerId } from "@/src/lib/auth/session";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,7 @@ function parseBody(raw: unknown): EditBody | null {
 }
 
 export async function PATCH(request: Request, { params }: Params) {
+  const ownerId = await getCurrentOwnerId();
   const { id } = await params;
   const validId = asNonEmptyString(id);
   if (!validId || !isUuid(validId)) {
@@ -97,7 +99,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.scheduledPost.findUnique({ where: { id: validId } });
+      const existing = await tx.scheduledPost.findFirst({
+        where: { id: validId, ownerId },
+      });
       if (!existing) return null;
       if (existing.status !== "scheduled") {
         throw new Error(`Only scheduled posts can be edited (current status: ${existing.status}).`);
@@ -113,6 +117,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
       await tx.postHistory.create({
         data: {
+          ownerId,
           scheduledPostId: row.id,
           eventType: "scheduled",
           message: "Scheduled post updated by user.",

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
+import { getCurrentOwnerId } from "@/src/lib/auth/session";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,7 @@ function isUuid(v: string): boolean {
 }
 
 export async function GET(_: Request, { params }: Params) {
+  const ownerId = await getCurrentOwnerId();
   const { id } = await params;
   const validId = asNonEmptyString(id);
   if (!validId || !isUuid(validId)) {
@@ -30,8 +32,8 @@ export async function GET(_: Request, { params }: Params) {
   }
 
   try {
-    const row = await prisma.scheduledPost.findUnique({
-      where: { id: validId },
+    const row = await prisma.scheduledPost.findFirst({
+      where: { id: validId, ownerId },
     });
     if (!row) {
       return apiError({ status: 404, code: "NOT_FOUND", message: "Scheduled post not found." });
@@ -44,6 +46,7 @@ export async function GET(_: Request, { params }: Params) {
 }
 
 export async function PATCH(request: Request, { params }: Params) {
+  const ownerId = await getCurrentOwnerId();
   const { id } = await params;
   const validId = asNonEmptyString(id);
   if (!validId || !isUuid(validId)) {
@@ -64,7 +67,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.scheduledPost.findUnique({ where: { id: validId } });
+      const existing = await tx.scheduledPost.findFirst({
+        where: { id: validId, ownerId },
+      });
       if (!existing) return null;
 
       if (existing.status === "cancelled") {
@@ -81,6 +86,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
       await tx.postHistory.create({
         data: {
+          ownerId,
           scheduledPostId: row.id,
           eventType: "cancelled",
           message,

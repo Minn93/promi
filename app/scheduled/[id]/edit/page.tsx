@@ -3,6 +3,9 @@ import { EditScheduledPostForm } from "@/components/edit-scheduled-post-form";
 import { getPostStatusCopy } from "@/lib/post-status-copy";
 import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/prisma";
+import { getCurrentOwnerId } from "@/src/lib/auth/session";
+
+export const dynamic = "force-dynamic";
 
 type EditScheduledPostPageProps = {
   params: Promise<{ id: string }>;
@@ -15,6 +18,7 @@ function isUuid(v: string): boolean {
 export default async function EditScheduledPostPage({ params }: EditScheduledPostPageProps) {
   const { id } = await params;
   const postId = id?.trim() ?? "";
+  const ownerId = await getCurrentOwnerId();
 
   if (!postId || !isUuid(postId)) {
     return (
@@ -31,8 +35,8 @@ export default async function EditScheduledPostPage({ params }: EditScheduledPos
     );
   }
 
-  const post = await prisma.scheduledPost.findUnique({
-    where: { id: postId },
+  const post = await prisma.scheduledPost.findFirst({
+    where: { id: postId, ownerId },
     select: {
       id: true,
       productName: true,

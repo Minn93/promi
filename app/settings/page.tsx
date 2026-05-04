@@ -3,8 +3,8 @@ import { SettingsPageContent } from "@/components/settings-page-content";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
-export default function SettingsPage() {
-  const ownerId = getCurrentOwnerId();
+export default async function SettingsPage() {
+  const ownerId = await getCurrentOwnerId();
   const planTier = getPlanTierForOwner(ownerId);
 
   return (

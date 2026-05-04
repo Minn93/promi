@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+import path from "node:path";
+import dotenv from "dotenv";
+
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local"), override: true });
+
 function parseBool(raw, defaultValue) {
   if (raw == null || String(raw).trim() === "") return defaultValue;
   const normalized = String(raw).trim().toLowerCase();

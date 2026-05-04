@@ -26,6 +26,7 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   try {
+    const ownerId = await getCurrentOwnerId();
     const provider = getPlatformAuthProvider(platform);
     const callback = await provider.exchangeCallback({
       code,
@@ -34,7 +35,7 @@ export async function GET(request: Request, { params }: Params) {
     });
 
     await connectAccountFromOAuth({
-      ownerId: getCurrentOwnerId(),
+      ownerId,
       platform,
       externalAccountId: callback.externalAccountId,
       displayName: callback.displayName,

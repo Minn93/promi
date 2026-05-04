@@ -153,11 +153,12 @@ export async function POST(request: Request) {
     });
   }
 
-  const ownerId = getCurrentOwnerId();
-  const planTier = getCurrentPlanTier();
+  const ownerId = await getCurrentOwnerId();
+  const planTier = await getCurrentPlanTier();
   const plan = getPlanConfig(planTier);
   const activeScheduledCount = await prisma.scheduledPost.count({
     where: {
+      ownerId,
       status: { in: ["scheduled", "processing", "failed", "needs_reconnect"] },
     },
   });
@@ -191,6 +192,7 @@ export async function POST(request: Request) {
       const row = await tx.scheduledPost
         .create({
           data: {
+            ownerId,
             productId: body.productId,
             productName: body.productName,
             imageUrl: body.imageUrl,
@@ -212,6 +214,7 @@ export async function POST(request: Request) {
       await tx.postHistory
         .create({
           data: {
+            ownerId,
             scheduledPostId: row.id,
             eventType: "scheduled",
             message: "Scheduled post created.",
@@ -236,6 +239,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const ownerId = await getCurrentOwnerId();
   const { searchParams } = new URL(request.url);
   const summary = asNonEmptyString(searchParams.get("summary"));
   const statusRaw = asNonEmptyString(searchParams.get("status"));
@@ -246,6 +250,7 @@ export async function GET(request: Request) {
     try {
       const activeCount = await prisma.scheduledPost.count({
         where: {
+          ownerId,
           status: { in: ["scheduled", "processing", "failed", "needs_reconnect"] },
         },
       });
@@ -270,7 +275,7 @@ export async function GET(request: Request) {
 
   try {
     const rows = await prisma.scheduledPost.findMany({
-      where: status ? { status } : undefined,
+      where: status ? { ownerId, status } : { ownerId },
       orderBy: [{ scheduledAt: "asc" }, { createdAt: "desc" }],
       take: limit,
     });

@@ -50,6 +50,8 @@ enum PostHistoryEventType {
 
 model ScheduledPost {
   id                  String              @id @default(uuid()) @map("id")
+  // Phase 12.1-A expand step: nullable until backfill/constrain phases.
+  ownerId             String              @map("owner_id")
   productId           String              @map("product_id")
   productName         String              @map("product_name")
   imageUrl            String?             @map("image_url")
@@ -81,11 +83,15 @@ model ScheduledPost {
   @@index([scheduledAt], map: "scheduled_posts_scheduled_at_idx")
   @@index([platform, status], map: "scheduled_posts_platform_status_idx")
   @@index([accountId], map: "scheduled_posts_account_id_idx")
+  @@index([ownerId, status, scheduledAt], map: "scheduled_posts_owner_status_scheduled_at_idx")
+  @@index([ownerId, createdAt], map: "scheduled_posts_owner_created_at_idx")
   @@map("scheduled_posts")
 }
 
 model PostHistory {
   id              String               @id @default(uuid()) @map("id")
+  // Phase 12.1-A expand step: nullable until backfill/constrain phases.
+  ownerId         String               @map("owner_id")
   scheduledPostId String               @map("scheduled_post_id")
   eventType       PostHistoryEventType @map("event_type")
   channel         String?              @map("channel")
@@ -95,6 +101,8 @@ model PostHistory {
   scheduledPost ScheduledPost @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
 
   @@index([scheduledPostId, createdAt], map: "post_history_scheduled_post_id_created_at_idx")
+  @@index([ownerId, createdAt], map: "post_history_owner_created_at_idx")
+  @@index([ownerId, scheduledPostId, createdAt], map: "post_history_owner_scheduled_post_id_created_at_idx")
   @@map("post_history")
 }
 
@@ -123,6 +131,8 @@ model ConnectedAccount {
 
 model PublishAttempt {
   id            String             @id @default(uuid()) @map("id")
+  // Phase 12.1-A expand step: nullable until backfill/constrain phases.
+  ownerId       String             @map("owner_id")
   scheduledPostId String           @map("scheduled_post_id")
   accountId     String?            @map("account_id")
   platform      Platform           @map("platform")
@@ -139,5 +149,7 @@ model PublishAttempt {
 
   @@index([scheduledPostId, createdAt], map: "publish_attempts_scheduled_post_id_created_at_idx")
   @@index([platform, status], map: "publish_attempts_platform_status_idx")
+  @@index([ownerId, createdAt], map: "publish_attempts_owner_created_at_idx")
+  @@index([ownerId, scheduledPostId, createdAt], map: "publish_attempts_owner_scheduled_post_id_created_at_idx")
   @@map("publish_attempts")
 }

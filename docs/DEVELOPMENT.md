@@ -22,6 +22,85 @@ Promi currently runs in **single-owner internal beta mode** by default.
 
 If production is deployed with `PROMI_INTERNAL_BETA_MODE=0`, the app now blocks startup to prevent accidental public-launch behavior while mock auth/billing assumptions still exist.
 
+## Real auth shell (Phase 11.1)
+
+Promi now includes a minimal Auth.js shell for real-auth mode.
+
+When `PROMI_INTERNAL_BETA_MODE=1` (default), internal beta behavior is unchanged:
+
+- Single-owner identity fallback is used.
+- Login is not required for internal-beta workflows.
+
+When `PROMI_INTERNAL_BETA_MODE=0`, login is required for protected app pages and user APIs.
+
+Required auth env in real-auth mode:
+
+| Variable | Purpose |
+|----------|---------|
+| `AUTH_SECRET` (or `NEXTAUTH_SECRET`) | Session/JWT signing secret for Auth.js. |
+| `AUTH_USER_EMAIL` | Minimal credentials-provider login email (Phase 11.1 shell). |
+| `AUTH_USER_PASSWORD` | Minimal credentials-provider login password (Phase 11.1 shell). |
+| `AUTH_USER_ID` (optional) | Stable owner id to place in session; defaults to `AUTH_USER_EMAIL` when omitted. |
+
+Sign-in endpoint:
+
+- `/api/auth/signin` (Auth.js default page)
+
+## Owner scoping rollout status (Phase 12)
+
+Phase 12 uses an expand -> backfill -> code -> constrain rollout.
+
+- Phase 12.1-A: `owner_id` columns exist on scheduled/history/attempt tables as **nullable**.
+- Phase 12.1-B: run owner-id backfill before owner-scoped query changes.
+- Phase 12.1-E: run owner-id validation before applying `NOT NULL` constraints.
+- Phase 12.1-F: `owner_id` is now required (`NOT NULL`) on `scheduled_posts`, `post_history`, and `publish_attempts`.
+
+Backfill command:
+
+```bash
+npm run backfill:owner-ids
+```
+
+What it does:
+
+- Uses `PROMI_INTERNAL_BETA_OWNER_ID` as fallback owner id (defaults to `local-dev-user`).
+- Backfills missing `scheduled_posts.owner_id`.
+- Backfills missing `post_history.owner_id` and `publish_attempts.owner_id` from related `scheduled_posts.owner_id` when possible.
+- Falls back to internal-beta owner id when relation copy is not possible.
+- Prints pre/post counts and exits non-zero if any `owner_id` remains missing.
+
+Run this after Phase 12.1-A schema expand and before owner-scoped reads/writes if any existing rows have null/empty `owner_id`.
+
+Owner-id validation command:
+
+```bash
+npm run validate:owner-ids
+```
+
+What it does:
+
+- Counts null/empty `owner_id` rows in `scheduled_posts`, `post_history`, and `publish_attempts`.
+- Counts `post_history.owner_id` rows that do not match related `scheduled_posts.owner_id`.
+- Counts `publish_attempts.owner_id` rows that do not match related `scheduled_posts.owner_id`.
+- Prints count-only output and exits non-zero when any blocking null/empty/mismatch is found.
+
+Run this before `NOT NULL` migration work and again after migration/deploy checks.
+
+### Phase 12 owner_id NOT NULL rollout plan
+
+1. Run `npm run backfill:owner-ids`.
+2. Run `npm run validate:owner-ids` and confirm zero blocking issues.
+3. Deploy owner-writing code paths (scheduler + publish + user-facing writes already owner-propagating).
+4. Run `npm run validate:owner-ids` against production data.
+5. Apply Phase 12.1-F `NOT NULL` migration.
+6. Re-run `npm run validate:owner-ids` as post-migration verification.
+
+### Phase 12 owner_id rollback considerations
+
+- If `npm run validate:owner-ids` fails, do not apply the `NOT NULL` constraint migration.
+- If the constraint migration fails, keep nullable schema, inspect failing rows, and rerun backfill/validate.
+- Do not delete rows to satisfy validation or migration.
+
 Validation command:
 
 ```bash
@@ -36,7 +115,11 @@ Preflight command (recommended before deploy):
 npm run preflight:internal-beta
 ```
 
-This runs config validation and production build checks in one command.
+This runs config validation, owner-id integrity validation, and production build checks in one command:
+
+- `npm run check:internal-beta`
+- `npm run validate:owner-ids`
+- `npm run build`
 
 ## Optional — product / AI
 

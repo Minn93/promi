@@ -22,7 +22,7 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   try {
-    const ownerId = getCurrentOwnerId();
+    const ownerId = await getCurrentOwnerId();
     const plan = getPlanConfig(getPlanTierForOwner(ownerId));
     const accounts = await listAccounts(ownerId);
     const activeCount = accounts.filter((item) => item.status !== "revoked").length;

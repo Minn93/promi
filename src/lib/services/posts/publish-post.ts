@@ -92,6 +92,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
     await prisma.$transaction(async (tx) => {
       await persistPublishFailure(tx, {
         scheduledPostId: post.id,
+        ownerId: post.ownerId,
         accountId: post.accountId,
         platform,
         code: PUBLISH_ERROR_CODES.ACCOUNT_NOT_FOUND,
@@ -109,6 +110,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
     await prisma.$transaction(async (tx) => {
       await persistPublishFailure(tx, {
         scheduledPostId: post.id,
+        ownerId: post.ownerId,
         accountId: inactiveAccountId,
         platform,
         code: PUBLISH_ERROR_CODES.ACCOUNT_INACTIVE,
@@ -134,6 +136,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
       await prisma.$transaction(async (tx) => {
         await persistPublishFailure(tx, {
           scheduledPostId: post.id,
+          ownerId: post.ownerId,
           accountId: xAccount.id,
           platform,
           code: PUBLISH_ERROR_CODES.X_AUTH_REQUIRED,
@@ -164,6 +167,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
         await prisma.$transaction(async (tx) => {
           await persistPublishFailure(tx, {
             scheduledPostId: post.id,
+            ownerId: post.ownerId,
             accountId: xAccount.id,
             platform,
             code,
@@ -220,6 +224,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
           await prisma.$transaction(async (tx) => {
             await persistPublishFailure(tx, {
               scheduledPostId: post.id,
+              ownerId: post.ownerId,
               accountId: retryAccount.id,
               platform,
               code: innerNorm.code,
@@ -239,6 +244,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
     await prisma.$transaction(async (tx) => {
       await persistPublishSuccess(tx, {
         scheduledPostId: post.id,
+        ownerId: post.ownerId,
         accountId: workingAccount?.id ?? null,
         platform,
         providerPostId: publishResult.providerPostId,
@@ -256,6 +262,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
     await prisma.$transaction(async (tx) => {
       await persistPublishFailure(tx, {
         scheduledPostId: post.id,
+        ownerId: post.ownerId,
         accountId: workingAccount?.id ?? null,
         platform,
         code: normalized.code,

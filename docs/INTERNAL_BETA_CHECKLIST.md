@@ -63,17 +63,31 @@ Then:
 - [ ] Confirm `/upgrade`, `/upgrade/checkout`, and `/upgrade/success` clearly state that billing is simulated.
 - [ ] In production, confirm simulated checkout actions are disabled.
 - [ ] Run `npm run check:internal-beta` and resolve all reported errors before rollout.
+- [ ] Run `npm run validate:owner-ids` and resolve any blocking integrity errors before rollout.
 
 ## Safety checks
 
 - [ ] CI workflow `Internal Beta Preflight` is passing.
+- [ ] Branch protection for `main` requires status check `Internal Beta Preflight / internal-beta-preflight`.
 - [ ] Repository secrets are configured for CI (`DATABASE_URL`, `CRON_SECRET`, `OPENAI_API_KEY`).
 - [ ] Repository variable `PROMI_INTERNAL_BETA_OWNER_ID` is configured for CI.
 - [ ] `npm run build` passes.
+- [ ] `npm run validate:owner-ids` passes in the deploy target environment.
 - [ ] `npm run preflight:internal-beta` passes locally before deployment.
 - [ ] Scheduler auth is configured (`CRON_SECRET`) or dev bypass is intentionally enabled only outside production.
 - [ ] OAuth connect/reconnect flow works for internal test accounts.
 - [ ] Create -> schedule -> scheduled list -> job run -> history flow works end-to-end.
+
+## Deployment evidence (record for each rollout)
+
+- [ ] Date/time captured (UTC + local timezone)
+- [ ] Environment recorded (`production-internal-beta`)
+- [ ] Commit SHA recorded
+- [ ] Preflight result recorded (`preflight:internal-beta` or CI gate)
+- [ ] `validate:owner-ids` result recorded
+- [ ] Post-deploy smoke result recorded
+- [ ] GO/NO-GO decision recorded
+- [ ] Approver recorded
 
 ## Must not ship as public SaaS yet
 

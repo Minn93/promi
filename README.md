@@ -7,6 +7,7 @@ Next.js app for product promotions, scheduled posts, connected social accounts, 
 ```bash
 npm install
 npm run check:internal-beta
+npm run validate:owner-ids
 npm run preflight:internal-beta
 npm run dev
 ```

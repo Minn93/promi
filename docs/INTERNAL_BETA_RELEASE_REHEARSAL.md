@@ -21,6 +21,7 @@ All **must pass** for Go:
 
 1. Preflight passes:
    - `npm run check:internal-beta`
+   - `npm run validate:owner-ids`
    - `npm run build`
 2. Internal-beta production deployment boots and shows internal-beta banner.
 3. Unsafe public mode safety block works (`PROMI_INTERNAL_BETA_MODE=0` in production).
@@ -56,6 +57,7 @@ Trigger rollback immediately if any occurs after deployment:
 ### A) Preflight evidence
 
 - [ ] `npm run check:internal-beta` passed.
+- [ ] `npm run validate:owner-ids` passed.
 - [ ] `npm run build` passed.
 - [ ] CI preflight workflow passed for candidate commit.
 
@@ -91,6 +93,7 @@ Fill once per rehearsal.
 
 ### Preflight
 - check:internal-beta: PASS/FAIL
+- validate:owner-ids: PASS/FAIL
 - build: PASS/FAIL
 - CI preflight workflow URL: 
 
@@ -113,6 +116,7 @@ Fill once per rehearsal.
 
 ### Decision
 - GO / NO-GO
+- Approver:
 - Decision rationale:
 - Rollback required: YES/NO
 ```

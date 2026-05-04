@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
+import { getCurrentOwnerId } from "@/src/lib/auth/session";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,7 @@ function isUuid(v: string): boolean {
 }
 
 export async function POST(_: Request, { params }: Params) {
+  const ownerId = await getCurrentOwnerId();
   const { id } = await params;
   const validId = asNonEmptyString(id);
   if (!validId || !isUuid(validId)) {
@@ -27,7 +29,9 @@ export async function POST(_: Request, { params }: Params) {
 
   try {
     const retried = await prisma.$transaction(async (tx) => {
-      const existing = await tx.scheduledPost.findUnique({ where: { id: validId } });
+      const existing = await tx.scheduledPost.findFirst({
+        where: { id: validId, ownerId },
+      });
       if (!existing) return null;
       if (existing.status === "published" || existing.status === "cancelled" || existing.status === "processing") {
         throw new Error(`Cannot retry post in status ${existing.status}.`);
@@ -51,6 +55,7 @@ export async function POST(_: Request, { params }: Params) {
 
       await tx.postHistory.create({
         data: {
+          ownerId,
           scheduledPostId: row.id,
           eventType: "retried",
           message: "Requeued for retry.",

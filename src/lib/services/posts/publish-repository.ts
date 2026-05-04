@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getInternalBetaOwnerId } from "@/src/lib/internal-beta-mode";
 import type { PublishErrorCode } from "@/src/lib/platforms/core/errors";
 import type { Platform } from "@/src/lib/platforms/core/types";
 
@@ -7,6 +8,14 @@ type DbClient = PrismaClient | Prisma.TransactionClient;
 
 export async function getScheduledPostForPublish(id: string) {
   return prisma.scheduledPost.findUnique({ where: { id } });
+}
+
+function resolveScheduledPostOwnerId(ownerId: string | null | undefined, scheduledPostId: string): string {
+  const normalized = ownerId?.trim();
+  if (normalized) return normalized;
+  const fallbackOwnerId = getInternalBetaOwnerId();
+  console.warn("[publish-owner] owner_id fallback used", { scheduledPostId });
+  return fallbackOwnerId;
 }
 
 export async function findConnectedAccountForPost(client: DbClient, accountId: string | null, platform: Platform) {
@@ -23,6 +32,7 @@ export async function persistPublishSuccess(
   client: DbClient,
   args: {
     scheduledPostId: string;
+    ownerId: string | null;
     accountId: string | null;
     platform: Platform;
     providerPostId: string;
@@ -32,6 +42,7 @@ export async function persistPublishSuccess(
     processedAt: Date;
   },
 ) {
+  const ownerId = resolveScheduledPostOwnerId(args.ownerId, args.scheduledPostId);
   await client.scheduledPost.updateMany({
     where: { id: args.scheduledPostId, status: "processing" },
     data: {
@@ -50,6 +61,7 @@ export async function persistPublishSuccess(
 
   await client.publishAttempt.create({
     data: {
+      ownerId,
       scheduledPostId: args.scheduledPostId,
       accountId: args.accountId,
       platform: args.platform,
@@ -62,6 +74,7 @@ export async function persistPublishSuccess(
 
   await client.postHistory.create({
     data: {
+      ownerId,
       scheduledPostId: args.scheduledPostId,
       eventType: "published",
       message: args.message,
@@ -73,6 +86,7 @@ export async function persistPublishFailure(
   client: DbClient,
   args: {
     scheduledPostId: string;
+    ownerId: string | null;
     accountId: string | null;
     platform: Platform;
     code: PublishErrorCode;
@@ -81,6 +95,7 @@ export async function persistPublishFailure(
     needsReconnect: boolean;
   },
 ) {
+  const ownerId = resolveScheduledPostOwnerId(args.ownerId, args.scheduledPostId);
   await client.scheduledPost.updateMany({
     where: { id: args.scheduledPostId, status: "processing" },
     data: {
@@ -96,6 +111,7 @@ export async function persistPublishFailure(
 
   await client.publishAttempt.create({
     data: {
+      ownerId,
       scheduledPostId: args.scheduledPostId,
       accountId: args.accountId,
       platform: args.platform,
@@ -107,6 +123,7 @@ export async function persistPublishFailure(
 
   await client.postHistory.create({
     data: {
+      ownerId,
       scheduledPostId: args.scheduledPostId,
       eventType: "failed",
       message: args.message,

@@ -18,6 +18,6 @@ export function getPlanTierForOwner(ownerId: string): PlanTier {
   return "free";
 }
 
-export function getCurrentPlanTier(): PlanTier {
-  return getPlanTierForOwner(getCurrentOwnerId());
+export async function getCurrentPlanTier(): Promise<PlanTier> {
+  return getPlanTierForOwner(await getCurrentOwnerId());
 }

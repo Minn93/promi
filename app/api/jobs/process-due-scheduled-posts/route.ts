@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
+import { getInternalBetaOwnerId } from "@/src/lib/internal-beta-mode";
 import { PUBLISH_ERROR_CODES } from "@/src/lib/platforms/core/errors";
 import { publishPost } from "@/src/lib/services/posts/publish-post";
 
@@ -28,6 +29,14 @@ function isManualSchedulerRun(request: Request): boolean {
   if (url.searchParams.get("manual") === "1") return true;
   if (request.headers.get("x-promi-manual-scheduler") === "1") return true;
   return false;
+}
+
+function resolveScheduledPostOwnerId(ownerId: string | null | undefined, scheduledPostId: string): string {
+  const normalized = ownerId?.trim();
+  if (normalized) return normalized;
+  const fallbackOwnerId = getInternalBetaOwnerId();
+  console.warn("[scheduler-owner] owner_id fallback used", { scheduledPostId });
+  return fallbackOwnerId;
 }
 
 async function handleProcessDueScheduledPosts(request: Request) {
@@ -80,6 +89,7 @@ async function handleProcessDueScheduledPosts(request: Request) {
       },
       select: {
         id: true,
+        ownerId: true,
         processingStartedAt: true,
       },
       take: limit,
@@ -108,6 +118,7 @@ async function handleProcessDueScheduledPosts(request: Request) {
       result.recoveredStale += 1;
       await prisma.postHistory.create({
         data: {
+          ownerId: resolveScheduledPostOwnerId(row.ownerId, row.id),
           scheduledPostId: row.id,
           eventType: "failed",
           message: staleMessage,
@@ -119,6 +130,10 @@ async function handleProcessDueScheduledPosts(request: Request) {
       where: {
         status: "scheduled",
         scheduledAt: { lte: now },
+      },
+      select: {
+        id: true,
+        ownerId: true,
       },
       orderBy: { scheduledAt: "asc" },
       take: limit,
@@ -177,6 +192,7 @@ async function handleProcessDueScheduledPosts(request: Request) {
           }),
           prisma.postHistory.create({
             data: {
+              ownerId: resolveScheduledPostOwnerId(row.ownerId, row.id),
               scheduledPostId: row.id,
               eventType: "failed",
               message,

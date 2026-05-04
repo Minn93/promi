@@ -55,7 +55,7 @@ function canAccessOps(ownerId: string): boolean {
 }
 
 export default async function OpsPage() {
-  const ownerId = getCurrentOwnerId();
+  const ownerId = await getCurrentOwnerId();
   if (!canAccessOps(ownerId)) {
     notFound();
   }

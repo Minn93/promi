@@ -15,7 +15,7 @@ function asNonEmptyString(v: unknown): string | null {
 
 export async function GET() {
   try {
-    const ownerId = getCurrentOwnerId();
+    const ownerId = await getCurrentOwnerId();
     const accounts = await listAccounts(ownerId);
     return NextResponse.json(
       { data: accounts },
@@ -47,7 +47,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const ownerId = getCurrentOwnerId();
+    const ownerId = await getCurrentOwnerId();
     const result = await disconnectAccount(ownerId, accountId);
     if (result.count !== 1) {
       return apiError({ status: 404, code: "NOT_FOUND", message: "Connected account not found." });
