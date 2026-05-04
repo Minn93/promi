@@ -14,6 +14,7 @@ env:
 
 jobs:
   internal-beta-preflight:
+    name: Internal Beta Preflight
     runs-on: ubuntu-latest
 
     env:
@@ -45,6 +46,11 @@ jobs:
 
       - name: Validate internal beta config
         run: npm run check:internal-beta
+        env:
+          NODE_ENV: production
+
+      - name: Validate owner-id integrity (required gate)
+        run: npm run validate:owner-ids
         env:
           NODE_ENV: production
 
