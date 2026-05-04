@@ -1,19 +1,17 @@
 import { PageHeader } from "@/components/page-header";
 import { UpgradeSuccessPanel } from "@/components/upgrade-success-panel";
-import { isInternalBetaModeServer } from "@/src/lib/internal-beta-mode";
+import { redirect } from "next/navigation";
 
 export default function UpgradeSuccessPage() {
-  const internalBetaMode = isInternalBetaModeServer();
-  const description =
-    internalBetaMode
-      ? "Internal beta billing state was updated in simulation mode."
-      : "Your Pro subscription state has been updated.";
+  if (process.env.NODE_ENV === "production") {
+    redirect("/upgrade");
+  }
 
   return (
     <>
       <PageHeader
-        title="Upgrade confirmed"
-        description={description}
+        title="Dev-only: billing preview result"
+        description="Shows local preview state after the dev playground step — unrelated to manual Pro entitlement on the server."
       />
       <UpgradeSuccessPanel />
     </>

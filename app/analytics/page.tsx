@@ -92,7 +92,7 @@ function extractPreview(contentPayload: unknown): string {
 
 export default async function AnalyticsPage() {
   const ownerId = await getCurrentOwnerId();
-  const planTier = getPlanTierForOwner(ownerId);
+  const planTier = await getPlanTierForOwner(ownerId);
   const rows = await prisma.scheduledPost.findMany({
     where: {
       ownerId,

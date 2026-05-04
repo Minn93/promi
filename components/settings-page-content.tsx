@@ -152,9 +152,9 @@ export function SettingsPageContent({ ownerId, planTier }: SettingsPageContentPr
       </section>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Plan and upgrade</h2>
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Plan and Pro access</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Free is great to start. Pro expands limits and unlocks advanced operations.
+          Free starts small. Higher limits come from Pro enrollment during closed beta via manual approval (no in-app checkout).
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {(["free", "pro"] as PlanTier[]).map((tier) => {
@@ -177,7 +177,7 @@ export function SettingsPageContent({ ownerId, planTier }: SettingsPageContentPr
             href="/upgrade"
             className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Upgrade to Pro
+            Request Pro access
           </Link>
         </div>
       </section>

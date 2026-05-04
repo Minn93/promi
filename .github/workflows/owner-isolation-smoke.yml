@@ -1,0 +1,68 @@
+name: Owner Isolation Smoke (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Target environment label (must be non-prod)"
+        required: true
+        type: string
+      confirm_non_prod:
+        description: "Type EXACTLY I_UNDERSTAND_NON_PROD_ONLY"
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  owner-isolation-smoke:
+    name: Owner Isolation Smoke (Manual)
+    runs-on: ubuntu-latest
+    if: ${{ inputs.confirm_non_prod == 'I_UNDERSTAND_NON_PROD_ONLY' && inputs.target_environment != 'production' }}
+    env:
+      DATABASE_URL: ${{ secrets.NON_PROD_DATABASE_URL }}
+      PHASE12_6_AUTH_SECRET: ${{ secrets.OWNER_ISOLATION_AUTH_SECRET }}
+      PHASE12_6_BASE_URL: http://127.0.0.1:3100
+      PROMI_INTERNAL_BETA_MODE: "0"
+      NEXT_PUBLIC_PROMI_INTERNAL_BETA_MODE: "0"
+      AUTH_SECRET: ${{ secrets.OWNER_ISOLATION_AUTH_SECRET }}
+      NEXTAUTH_SECRET: ${{ secrets.OWNER_ISOLATION_AUTH_SECRET }}
+
+    steps:
+      - name: Safety warning
+        run: |
+          echo "Manual owner-isolation smoke is for NON-PROD rehearsal environments."
+          echo "Do not run this against production data unless intentionally rehearsing with explicit approval."
+          echo "target_environment=${{ inputs.target_environment }}"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Build app
+        run: npm run build
+
+      - name: Start app server
+        run: npm run start -- -p 3100 > owner-isolation-server.log 2>&1 &
+
+      - name: Wait for app startup
+        run: npx wait-on http://127.0.0.1:3100
+
+      - name: Run owner isolation smoke
+        run: npm run smoke:owner-isolation
+
+      - name: Upload server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-isolation-server-log
+          path: owner-isolation-server.log

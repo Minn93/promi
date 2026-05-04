@@ -153,3 +153,77 @@ model PublishAttempt {
   @@index([ownerId, scheduledPostId, createdAt], map: "publish_attempts_owner_scheduled_post_id_created_at_idx")
   @@map("publish_attempts")
 }
+
+model OwnerEntitlement {
+  id        String   @id @default(uuid()) @map("id")
+  ownerId   String   @unique(map: "owner_entitlements_owner_id_key") @map("owner_id")
+  planTier  String   @default("free") @map("plan_tier")
+  status    String   @default("active") @map("status")
+  source    String   @default("env") @map("source")
+  effectiveAt DateTime @default(now()) @map("effective_at") @db.Timestamptz(6)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+  updatedBy String?  @map("updated_by")
+  notes     String?  @map("notes")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("owner_entitlements")
+}
+
+model EntitlementAuditLog {
+  id               String   @id @default(uuid()) @map("id")
+  ownerId          String   @map("owner_id")
+  action           String   @map("action")
+  previousPlanTier String?  @map("previous_plan_tier")
+  nextPlanTier     String?  @map("next_plan_tier")
+  previousStatus   String?  @map("previous_status")
+  nextStatus       String?  @map("next_status")
+  source           String   @map("source")
+  actorOwnerId     String?  @map("actor_owner_id")
+  notes            String?  @map("notes")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ownerId, createdAt], map: "entitlement_audit_logs_owner_created_at_idx")
+  @@map("entitlement_audit_logs")
+}
+
+model BillingCustomer {
+  id                 String   @id @default(uuid()) @map("id")
+  ownerId            String   @unique(map: "billing_customers_owner_id_key") @map("owner_id")
+  provider           String   @map("provider")
+  providerCustomerId String   @map("provider_customer_id")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("billing_customers")
+}
+
+model BillingSubscription {
+  id                     String    @id @default(uuid()) @map("id")
+  ownerId                String    @map("owner_id")
+  provider               String    @map("provider")
+  providerSubscriptionId String    @unique(map: "billing_subscriptions_provider_subscription_id_key") @map("provider_subscription_id")
+  status                 String    @map("status")
+  periodStart            DateTime? @map("period_start") @db.Timestamptz(6)
+  periodEnd              DateTime? @map("period_end") @db.Timestamptz(6)
+  cancelAt               DateTime? @map("cancel_at") @db.Timestamptz(6)
+  trialEnd               DateTime? @map("trial_end") @db.Timestamptz(6)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, status], map: "billing_subscriptions_owner_status_idx")
+  @@map("billing_subscriptions")
+}
+
+model BillingWebhookEvent {
+  id              String    @id @default(uuid()) @map("id")
+  provider        String    @map("provider")
+  providerEventId String    @map("provider_event_id")
+  eventType       String    @map("event_type")
+  payloadHash     String    @map("payload_hash")
+  processedAt     DateTime? @map("processed_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([provider, providerEventId], map: "billing_webhook_events_provider_event_id_key")
+  @@map("billing_webhook_events")
+}

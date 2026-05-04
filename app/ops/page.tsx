@@ -130,8 +130,11 @@ export default async function OpsPage() {
   const ownerSet = new Set(ownerRows.map((row) => row.ownerId));
   ownerSet.add(ownerId);
   const distinctOwners = [...ownerSet];
-  const freeOwners = distinctOwners.filter((id) => getPlanTierForOwner(id) === "free").length;
-  const proOwners = distinctOwners.filter((id) => getPlanTierForOwner(id) === "pro").length;
+  const ownerPlanTiers = await Promise.all(
+    distinctOwners.map(async (id) => ({ ownerId: id, planTier: await getPlanTierForOwner(id) })),
+  );
+  const freeOwners = ownerPlanTiers.filter((item) => item.planTier === "free").length;
+  const proOwners = ownerPlanTiers.filter((item) => item.planTier === "pro").length;
 
   return (
     <div className="space-y-8">

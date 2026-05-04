@@ -32,7 +32,7 @@ export async function connectAccountFromOAuth(input: ConnectFromOAuthInput) {
   );
   if (!alreadyConnected) {
     const activeAccounts = existingAccounts.filter((item) => item.status !== "revoked");
-    const plan = getPlanConfig(getPlanTierForOwner(input.ownerId));
+    const plan = getPlanConfig(await getPlanTierForOwner(input.ownerId));
     if (isLimitReached(activeAccounts.length, plan.limits.connectedAccounts)) {
       throw new Error(
         `You reached the ${plan.label} limit of ${plan.limits.connectedAccounts} connected accounts. Upgrade to Pro to connect more accounts.`,

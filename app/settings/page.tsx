@@ -5,7 +5,7 @@ import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
 export default async function SettingsPage() {
   const ownerId = await getCurrentOwnerId();
-  const planTier = getPlanTierForOwner(ownerId);
+  const planTier = await getPlanTierForOwner(ownerId);
 
   return (
     <>

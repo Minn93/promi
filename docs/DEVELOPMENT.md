@@ -101,6 +101,122 @@ Run this before `NOT NULL` migration work and again after migration/deploy check
 - If the constraint migration fails, keep nullable schema, inspect failing rows, and rerun backfill/validate.
 - Do not delete rows to satisfy validation or migration.
 
+## Entitlement foundation status (Phase 13.1-A)
+
+Phase 13.1-A is a schema expand only step for server-authoritative entitlement groundwork.
+
+- Added entitlement/audit schema: `owner_entitlements`, `entitlement_audit_logs`.
+- Added provider-ready schema placeholders: `billing_customers`, `billing_subscriptions`, `billing_webhook_events`.
+- Added indexes/uniques for owner lookups, timeline queries, subscription status filtering, and webhook idempotency keys.
+- No runtime entitlement resolver changes were made in this phase.
+- Existing plan checks, internal beta behavior, and owner-scoped create/schedule/history flows remain unchanged.
+- Mock billing legacy UI is **non-authoritative** and limited to developer localStorage playgrounds (never linked from production bundles).
+
+## Entitlement resolver status (Phase 13.1-B)
+
+Phase 13.1-B adds a read-only server entitlement resolver path.
+
+- Server plan resolution now checks `owner_entitlements` first for the current `owner_id`.
+- Active entitlement rows resolve to their `plan_tier`.
+- Inactive/canceled/expired rows resolve to `free`.
+- If no entitlement row exists (or entitlement lookup fails), resolver falls back to existing env/default logic:
+  - `PROMI_DEFAULT_PLAN`
+  - `NEXT_PUBLIC_PROMI_DEFAULT_PLAN`
+  - `PROMI_DEV_PRO_OWNER_IDS`
+- Client localStorage/mock billing state is not authoritative for server entitlements.
+- Public paid launch remains NO-GO; this phase does not add provider checkout/subscriptions/webhooks.
+
+## Server plan-limit enforcement (Phase 13.1-C)
+
+- All server-side limit checks resolve the plan tier through `getPlanTierForOwner(ownerId)` (includes `owner_entitlements` first, then env fallback inside `src/lib/plans/server.ts`).
+- `env` / default plan variables apply only as the documented fallback path, not as parallel entitlement logic.
+- Client localStorage/mock billing remains UI-only and is not trusted for server authorization.
+
+## Manual entitlement tooling (Phase 13.1-D)
+
+Operational CLI only (no public HTTP mutations). Loads `.env` / `.env.local` like other maintenance scripts.
+
+- **Inspect:**  
+  `npm run entitlement:manage -- --action=status --ownerId=<owner>`
+- **Audit log (read-only, newest events first):**  
+  `npm run entitlement:audit -- --ownerId=<owner>` (`--limit=1`-`100`; default `20`)
+- **Grant Pro (manual):**  
+  `npm run entitlement:manage -- --action=grant --ownerId=<owner> --confirm`  
+  Sets `plan_tier=pro`, `status=active`, `source=manual`. Optional: `--effectiveAt=<ISO>`, `--expiresAt=<ISO>`, `--updatedBy=<id>`, `--notes=<text>`, `--actorOwnerId=<id>` (or env `PROMI_ENTITLEMENT_ACTOR_OWNER_ID`).
+- **Revoke (manual):**  
+  `npm run entitlement:manage -- --action=revoke --ownerId=<owner> --confirm`  
+  Sets `plan_tier=free`, `status=inactive`, `source=manual`, clears `expires_at`. Does not delete rows.
+- Convenience (still pass `--ownerId`):  
+  `npm run entitlement:grant -- --ownerId=<owner>` and `npm run entitlement:revoke -- --ownerId=<owner>` (both require `--confirm` in the CLI args).
+
+Mutations append a row to `entitlement_audit_logs`. `--confirm` is required for grant/revoke.
+
+## Pro access UI (Phase 13.1-E / 13.2.4)
+
+- `/upgrade` surfaces closed/internal-beta Pro access: manual approval messaging, **server** plan resolution (`getPlanTierForOwner`), and an optional read-only snapshot of `owner_entitlements`.
+- After a tester requests Pro (mailto when `PROMI_UPGRADE_REQUEST_EMAIL` is set, or pasted text with `ownerId`), an operator grants with `npm run entitlement:grant -- --ownerId=<owner> …`.
+- **Phase 13.2.4**: when **`isStripeHostedCheckoutOfferedServer()`** is true (billing flags **on**, Stripe configured), `/upgrade` may show **Continue with Stripe Checkout** — it calls **`POST /api/billing/checkout-session`** with the session cookie and redirects to Stripe. **`owner_id` is never accepted from JSON** on that route.
+- Returning to **`/upgrade?checkout=success`** does **not** grant Pro; only **verified webhooks** update mirrors and **`owner_entitlements`**.
+- `/upgrade/checkout` and `/upgrade/success` **redirect to `/upgrade` when `NODE_ENV=production`**; locally they remain a legacy **localStorage** playground that does **not** change server entitlements and must **never** impersonate hosted Stripe Checkout.
+
+## Manual entitlement smoke evidence (Phase 13.1-F)
+
+- End-to-end entitlement confirmation and template: **`docs/PHASE13_1_F_ENTITLEMENT_SMOKE_EVIDENCE.md`**
+- Read-only audit log tail (newest first, default 20 rows, max 100):
+
+```bash
+npm run entitlement:audit -- --ownerId=<owner>
+```
+
+Equivalent: `npm run entitlement:manage -- --action=audit --ownerId=<owner> [--limit=20]`
+
+## Stripe billing webhooks (Phase 13.2.x)
+
+`POST` **`/api/webhooks/billing/stripe`** — **no session**; Stripe **signature verification** on the raw body (`stripe.webhooks.constructEvent`). When **`PROMI_BILLING_ENABLED=1`**:
+
+1. **Persist** **`billing_webhook_events`** (**SHA-256** `payload_hash`; unique Stripe `event.id`).
+2. **Atomically mirror + entitlement sync + `processed_at`:** upsert **`billing_customers`** / **`billing_subscriptions`** when the mirror plan applies, then reconcile **`owner_entitlements`** (**`source=provider`**) unless a **manual lock** blocks (see **`docs/PHASE13_2_BILLING_PLAN.md`**). Append **`entitlement_audit_logs`** with **`action=provider_sync`** only when entitlement fields actually change (`notes` carries `event.type:event.id` — no raw payloads). Same `event.id` replay returns **`200`** `alreadyProcessed` / **`alreadyProcessedConcurrent`** — **no duplicate audits**.
+3. Resolver recognizes Stripe grace **`past_due`** subscriptions as billable-active (still **Pro** tier) alongside existing active statuses (`src/lib/entitlements/server.ts`).
+
+**Events:**
+
+- **`customer.subscription.*`** (with resolved owner): mirror rows + entitlement sync above.
+- **`checkout.session.completed`** (**`mode=subscription`**): trusted mirror + entitlement pipeline only when **`client_reference_id`** / **`metadata.owner_id`** align with **`subscription.metadata.owner_id`** (set by **`POST /api/billing/checkout-session`**); otherwise **`kind=none`** with a safe note — **never** infer owner from arbitrary sessions.
+- Unsupported types: ingest + **`processed_at`**, **`ignored`**, **no entitlement mutation**.
+
+Manual **grant** (`manual`/`active`|`manual`): blocks provider overwrite until expired/revoked. Manual **revoke** (`inactive`/`free`): **does not lock** — later Stripe **`active`** webhooks may restore **`provider`** Pro.
+
+If processing fails before commit: **`500`**; **`processed_at` stays null** for Stripe retries. Logs omit secrets, payloads, and customer PII (only Stripe ids/types where needed).
+
+| Variable | Purpose |
+|----------|---------|
+| `STRIPE_SECRET_KEY` | Stripe SDK secret API key (**test** keys for rehearsal). Never commit. |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_…`). Never commit or log. |
+| `STRIPE_PRO_PRICE_ID` | Stripe Price id (`price_…`) used for **`mode=subscription`** Checkout line items (**Pro**). |
+| `PROMI_BILLING_PROVIDER` | Set **`stripe`** for ingest + Checkout + webhook path alignment. |
+| `PROMI_BILLING_ENABLED` | Defaults **OFF** (`false`). **ON** (`1`/true): webhook ingest writes + mirror + entitlement sync; Checkout API rejects when **OFF**. |
+| `PROMI_APP_URL` | **Preferred** canonical public origin (**no trailing slash**) for Stripe **`success_url` / `cancel_url`**. Fallback order in code: `NEXT_PUBLIC_APP_URL`, then **`NEXTAUTH_URL`**. Wrong origin breaks redirects after Checkout. |
+| `NEXT_PUBLIC_APP_URL` | Optional fallback for canonical origin when **`PROMI_APP_URL`** is unset (build-time convention). Not used for webhook trust. |
+| `NEXT_PUBLIC_PROMI_BILLING_ENABLED` | **Optional UX-only** mirror of billing readiness — **never** authoritative; server routes rely on **`PROMI_BILLING_*`** + secrets. Omit unless you deliberately want marketing copy keyed to a public flag. |
+
+**Hosted Checkout Session API**: **`POST /api/billing/checkout-session`** requires all of: **`PROMI_BILLING_ENABLED`**, **`PROMI_BILLING_PROVIDER=stripe`**, **`STRIPE_SECRET_KEY`**, **`STRIPE_PRO_PRICE_ID`**, and a resolved canonical app URL. Missing pieces → **`503`** `billing_misconfigured`; billing **OFF** or wrong provider → **`403`** `billing_disabled`; unauthenticated caller → **`401`**. Responses return **`{ url }`** only (redirect to Stripe Hosted Checkout — **no** card data in-app).
+
+Local Stripe CLI rehearsal:
+
+```bash
+stripe listen --forward-to localhost:3000/api/webhooks/billing/stripe
+# `.env.local`: STRIPE_WEBHOOK_SECRET from CLI; STRIPE_SECRET_KEY=test key; PROMI_BILLING_ENABLED=1
+stripe trigger customer.subscription.created
+stripe trigger customer.subscription.updated
+stripe trigger customer.subscription.deleted
+# Optional (13.2.4+): signed into the app as the target owner, POST /api/billing/checkout-session (same-origin),
+# complete Checkout in Stripe **test** mode, then confirm webhook rows + `owner_entitlements.source=provider`.
+```
+
+For **full Checkout → webhook** proof (Phase **13.2.5**), capture delivered events and DB state — **do not** treat `/upgrade?checkout=success` as evidence of Pro.
+
+Verify behavior after grant/revoke: use **status** and exercise server limits (`POST /api/scheduled-posts`, OAuth connect limits) — they use `getPlanTierForOwner`, not mock billing UI.
+
 Validation command:
 
 ```bash

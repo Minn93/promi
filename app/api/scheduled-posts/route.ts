@@ -5,7 +5,7 @@ import type { InternalPostStatus } from "@/lib/post-status";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { getPlanConfig, isLimitReached } from "@/src/lib/plans/config";
-import { getCurrentPlanTier } from "@/src/lib/plans/server";
+import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,7 +154,7 @@ export async function POST(request: Request) {
   }
 
   const ownerId = await getCurrentOwnerId();
-  const planTier = await getCurrentPlanTier();
+  const planTier = await getPlanTierForOwner(ownerId);
   const plan = getPlanConfig(planTier);
   const activeScheduledCount = await prisma.scheduledPost.count({
     where: {

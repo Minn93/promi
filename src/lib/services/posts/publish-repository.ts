@@ -18,12 +18,19 @@ function resolveScheduledPostOwnerId(ownerId: string | null | undefined, schedul
   return fallbackOwnerId;
 }
 
-export async function findConnectedAccountForPost(client: DbClient, accountId: string | null, platform: Platform) {
+export async function findConnectedAccountForPost(
+  client: DbClient,
+  scheduledPostId: string,
+  ownerId: string | null | undefined,
+  accountId: string | null,
+  platform: Platform,
+) {
+  const scopedOwnerId = resolveScheduledPostOwnerId(ownerId, scheduledPostId);
   if (accountId) {
-    return client.connectedAccount.findUnique({ where: { id: accountId } });
+    return client.connectedAccount.findFirst({ where: { id: accountId, ownerId: scopedOwnerId } });
   }
   return client.connectedAccount.findFirst({
-    where: { platform, status: "active" },
+    where: { ownerId: scopedOwnerId, platform, status: "active" },
     orderBy: { updatedAt: "desc" },
   });
 }

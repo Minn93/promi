@@ -12,6 +12,14 @@ npm run preflight:internal-beta
 npm run dev
 ```
 
+Owner-isolation adversarial smoke (release rehearsal signal):
+
+```bash
+npm run smoke:owner-isolation
+```
+
+Use in dedicated non-prod rehearsal environments. This is not part of default PR preflight.
+
 Open [http://localhost:3000](http://localhost:3000).
 
 ## Documentation

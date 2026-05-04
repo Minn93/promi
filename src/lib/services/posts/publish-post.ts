@@ -85,7 +85,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
 
   const platform = asPlatform(post.platform);
 
-  let workingAccount = await findConnectedAccountForPost(prisma, post.accountId, platform);
+  let workingAccount = await findConnectedAccountForPost(prisma, post.id, post.ownerId, post.accountId, platform);
   if (!workingAccount && post.accountId) {
     const message = "Connected account was not found for this post.";
     const failedAt = new Date();
@@ -152,7 +152,7 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
       try {
         const bundle = await refreshXAccessToken(xAccount.refreshToken!.trim());
         await updateConnectedAccountTokens(xAccount.id, bundle);
-        workingAccount = (await findConnectedAccountForPost(prisma, post.accountId, platform)) ?? xAccount;
+        workingAccount = (await findConnectedAccountForPost(prisma, post.id, post.ownerId, post.accountId, platform)) ?? xAccount;
       } catch (err) {
         const normalized = toPlatformPublishError(err);
         const failedAt = new Date();

@@ -1,4 +1,5 @@
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { readOwnerEntitlementPlanTier } from "@/src/lib/entitlements/server";
 import { normalizePlanTier, type PlanTier } from "@/src/lib/plans/config";
 
 function getProOwnerSet(): Set<string> {
@@ -10,7 +11,7 @@ function getProOwnerSet(): Set<string> {
   return new Set(ids);
 }
 
-export function getPlanTierForOwner(ownerId: string): PlanTier {
+function getFallbackPlanTierForOwner(ownerId: string): PlanTier {
   const defaultTier = normalizePlanTier(process.env.PROMI_DEFAULT_PLAN ?? process.env.NEXT_PUBLIC_PROMI_DEFAULT_PLAN);
   if (defaultTier === "pro") return "pro";
   const proOwners = getProOwnerSet();
@@ -18,6 +19,16 @@ export function getPlanTierForOwner(ownerId: string): PlanTier {
   return "free";
 }
 
+export async function getPlanTierForOwner(ownerId: string): Promise<PlanTier> {
+  const entitlementTier = await readOwnerEntitlementPlanTier(ownerId);
+  if (entitlementTier) return entitlementTier;
+  return getFallbackPlanTierForOwner(ownerId);
+}
+
+/**
+ * Convenience for the authenticated session owner. Routes that already call
+ * `getCurrentOwnerId()` should use `getPlanTierForOwner(ownerId)` to avoid a second session read.
+ */
 export async function getCurrentPlanTier(): Promise<PlanTier> {
   return getPlanTierForOwner(await getCurrentOwnerId());
 }
