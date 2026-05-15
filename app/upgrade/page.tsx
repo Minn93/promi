@@ -1,6 +1,8 @@
+import { AccountUnavailableState } from "@/components/account-unavailable-state";
 import { PageHeader } from "@/components/page-header";
 import { UpgradePricingFlow } from "@/components/upgrade-pricing-flow";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { fetchOwnerEntitlementDisplay } from "@/src/lib/entitlements/server";
 import { isStripeHostedCheckoutOfferedServer } from "@/src/lib/billing/billing-env";
 import { isInternalBetaModeServer } from "@/src/lib/internal-beta-mode";
@@ -24,6 +26,21 @@ export default async function UpgradePage({ searchParams }: UpgradePageProps) {
   const internalBetaMode = isInternalBetaModeServer();
   const offerStripeHostedCheckout = isStripeHostedCheckoutOfferedServer();
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  if (policyGate) {
+    return (
+      <>
+        <PageHeader
+          title={internalBetaMode ? "Pro access (internal beta)" : "Pro access (closed beta)"}
+          description="Review account and plan status."
+        />
+        <AccountUnavailableState
+          title="Account unavailable"
+          description="Plan and upgrade details are unavailable for this account."
+        />
+      </>
+    );
+  }
   const resolvedPlanTier = await getPlanTierForOwner(ownerId);
   const entitlement = await fetchOwnerEntitlementDisplay(ownerId);
   const upgradeRequestEmail = process.env.PROMI_UPGRADE_REQUEST_EMAIL?.trim();

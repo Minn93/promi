@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
+import { isInternalBetaModeServer } from "@/src/lib/internal-beta-mode";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
 export const runtime = "nodejs";
@@ -45,17 +47,25 @@ function MetricCard({ label, value, hint, tone = "default" }: MetricCardProps) {
 }
 
 function canAccessOps(ownerId: string): boolean {
-  if (process.env.NODE_ENV !== "production") return true;
   if (process.env.PROMI_ENABLE_OPS_DASHBOARD === "1") return true;
   const allowed = (process.env.PROMI_OPS_OWNER_IDS ?? "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  return allowed.includes(ownerId);
+  if (allowed.includes(ownerId)) return true;
+  // Local internal-beta convenience only — never open global aggregates to arbitrary signed-in users in real-auth mode.
+  if (process.env.NODE_ENV !== "production" && isInternalBetaModeServer()) {
+    return true;
+  }
+  return false;
 }
 
 export default async function OpsPage() {
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  if (policyGate) {
+    notFound();
+  }
   if (!canAccessOps(ownerId)) {
     notFound();
   }

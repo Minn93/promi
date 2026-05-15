@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { AccountUnavailableState } from "@/components/account-unavailable-state";
 import { EditScheduledPostForm } from "@/components/edit-scheduled-post-form";
 import { getPostStatusCopy } from "@/lib/post-status-copy";
 import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,18 @@ export default async function EditScheduledPostPage({ params }: EditScheduledPos
   const { id } = await params;
   const postId = id?.trim() ?? "";
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  if (policyGate) {
+    return (
+      <>
+        <PageHeader title="Edit scheduled post" description="Update a scheduled post before publishing." />
+        <AccountUnavailableState
+          title="Account unavailable"
+          description="Post editing requires an active account."
+        />
+      </>
+    );
+  }
 
   if (!postId || !isUuid(postId)) {
     return (

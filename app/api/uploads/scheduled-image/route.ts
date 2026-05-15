@@ -3,6 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
+import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
+import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import {
   ALLOWED_IMAGE_EXTENSIONS,
   IMAGE_UPLOAD_MAX_BYTES,
@@ -10,6 +12,7 @@ import {
   isAllowedImageByName,
   isAllowedImageMime,
 } from "@/src/lib/media/image-upload";
+import { consumeRateLimit, RATE_LIMITS } from "@/src/lib/rate-limit/server";
 
 export const runtime = "nodejs";
 
@@ -20,6 +23,42 @@ function allowedExtensionsLabel() {
 }
 
 export async function POST(request: Request) {
+  let ownerId: string;
+  try {
+    ownerId = (await getCurrentOwnerId()).trim();
+  } catch {
+    return apiError({ status: 401, code: "UNAUTHORIZED", message: "Authentication required." });
+  }
+  if (!ownerId) {
+    return apiError({ status: 401, code: "UNAUTHORIZED", message: "Authentication required." });
+  }
+
+  const rl = await consumeRateLimit({
+    namespace: "upload_scheduled_image_owner",
+    identifier: ownerId,
+    max: RATE_LIMITS.uploadPerOwner.max,
+    window: RATE_LIMITS.uploadPerOwner.window,
+  });
+  if (!rl.ok) {
+    if (rl.kind === "store_required") {
+      return apiError({
+        status: 503,
+        code: "SERVICE_UNAVAILABLE",
+        message: "Service temporarily unavailable. Please try again later.",
+      });
+    }
+    return apiError({
+      status: 429,
+      code: "TOO_MANY_REQUESTS",
+      message: "Too many requests. Please try again later.",
+    });
+  }
+
+  const gate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
+  if (gate) return accountGateApiError(gate);
+
+  console.info("[api/uploads/scheduled-image]", { ownerPrefix: ownerId.slice(0, 6) });
+
   let form: FormData;
   try {
     form = await request.formData();

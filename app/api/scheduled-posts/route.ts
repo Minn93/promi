@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { apiError } from "@/lib/api-errors";
 import type { InternalPostStatus } from "@/lib/post-status";
 import { prisma } from "@/lib/prisma";
+import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { getPlanConfig, isLimitReached } from "@/src/lib/plans/config";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
@@ -154,6 +155,8 @@ export async function POST(request: Request) {
   }
 
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
+  if (policyGate) return accountGateApiError(policyGate);
   const planTier = await getPlanTierForOwner(ownerId);
   const plan = getPlanConfig(planTier);
   const activeScheduledCount = await prisma.scheduledPost.count({
@@ -240,6 +243,8 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  if (policyGate) return accountGateApiError(policyGate);
   const { searchParams } = new URL(request.url);
   const summary = asNonEmptyString(searchParams.get("summary"));
   const statusRaw = asNonEmptyString(searchParams.get("status"));

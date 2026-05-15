@@ -15,26 +15,30 @@ function readAuthenticatedUserId(session: unknown): string | null {
 }
 
 export async function resolveCurrentOwnerId() {
-  // Internal beta assumption: a single owner identity is shared until real auth is implemented.
   // This guard prevents accidental "public SaaS" deployment with dev-auth still enabled.
   if (isUnsafePublicLaunchAttemptServer()) {
     throw new Error(
-      "Promi is configured for public launch mode, but real auth is not implemented yet. Set PROMI_INTERNAL_BETA_MODE=1 for internal beta deployments.",
+      "Promi is blocked in this production configuration (not internal beta and PROMI_AUTH_PRODUCT_READY is not enabled). " +
+        "Set PROMI_INTERNAL_BETA_MODE=1 for internal beta, or PROMI_AUTH_PRODUCT_READY=1 once DB-backed auth is deployed.",
     );
-  }
-
-  if (isInternalBetaModeServer()) {
-    return getInternalBetaOwnerId();
   }
 
   const session = await getServerSession(authOptions);
   const userId = readAuthenticatedUserId(session);
-  if (!userId) {
-    throw new Error(
-      "Authentication required in real-auth mode. Sign in before accessing owner-scoped routes.",
-    );
+  if (userId) {
+    return userId;
   }
-  return userId;
+
+  // Unauthenticated: internal beta falls back to the shared beta owner id (proxy may bypass JWT).
+  // Authenticated users must always use the path above so multi-user isolation holds even when
+  // PROMI_INTERNAL_BETA_MODE defaults to on.
+  if (isInternalBetaModeServer()) {
+    return getInternalBetaOwnerId();
+  }
+
+  throw new Error(
+    "Authentication required in real-auth mode. Sign in before accessing owner-scoped routes.",
+  );
 }
 
 export async function getCurrentOwnerId() {

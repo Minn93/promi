@@ -4,6 +4,14 @@ import {
   type GeneratePromotionInput,
   type GeneratePromotionResult,
 } from "@/lib/openai";
+import {
+  accountGateNextResponse,
+  checkOwnerAccountGates,
+} from "@/src/lib/auth/user-status";
+import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { consumeRateLimit, RATE_LIMITS, rateLimitFailureResponse } from "@/src/lib/rate-limit/server";
+
+export const runtime = "nodejs";
 
 export type GeneratePromotionRequest = {
   productName: string;
@@ -63,6 +71,29 @@ function toHelperInput(req: GeneratePromotionRequest): GeneratePromotionInput {
 }
 
 export async function POST(request: Request) {
+  let ownerId: string;
+  try {
+    ownerId = (await getCurrentOwnerId()).trim();
+  } catch {
+    return NextResponse.json({ error: "authentication_required" }, { status: 401 });
+  }
+  if (!ownerId) {
+    return NextResponse.json({ error: "authentication_required" }, { status: 401 });
+  }
+
+  const rl = await consumeRateLimit({
+    namespace: "generate_owner",
+    identifier: ownerId,
+    max: RATE_LIMITS.generatePerOwner.max,
+    window: RATE_LIMITS.generatePerOwner.window,
+  });
+  if (!rl.ok) return rateLimitFailureResponse(rl);
+
+  const gate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
+  if (gate) return accountGateNextResponse(gate);
+
+  console.info("[api/generate]", { ownerPrefix: ownerId.slice(0, 6) });
+
   let body: unknown;
 
   try {

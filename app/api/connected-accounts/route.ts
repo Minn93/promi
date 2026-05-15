@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { disconnectAccount, listAccounts } from "@/src/lib/services/connected-accounts/service";
 
 export const runtime = "nodejs";
@@ -16,6 +17,8 @@ function asNonEmptyString(v: unknown): string | null {
 export async function GET() {
   try {
     const ownerId = await getCurrentOwnerId();
+    const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+    if (policyGate) return accountGateApiError(policyGate);
     const accounts = await listAccounts(ownerId);
     return NextResponse.json(
       { data: accounts },
@@ -48,6 +51,8 @@ export async function PATCH(request: Request) {
 
   try {
     const ownerId = await getCurrentOwnerId();
+    const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+    if (policyGate) return accountGateApiError(policyGate);
     const result = await disconnectAccount(ownerId, accountId);
     if (result.count !== 1) {
       return apiError({ status: 404, code: "NOT_FOUND", message: "Connected account not found." });

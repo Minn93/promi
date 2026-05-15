@@ -1,8 +1,10 @@
 import { Suspense } from "react";
+import { AccountUnavailableState } from "@/components/account-unavailable-state";
 import { PageHeader } from "@/components/page-header";
 import { AnalyticsDashboard } from "@/components/analytics-dashboard";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +94,21 @@ function extractPreview(contentPayload: unknown): string {
 
 export default async function AnalyticsPage() {
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  if (policyGate) {
+    return (
+      <>
+        <PageHeader
+          title="Analytics"
+          description="Simple post performance analytics from published posts and history data."
+        />
+        <AccountUnavailableState
+          title="Account unavailable"
+          description="Analytics requires an active account."
+        />
+      </>
+    );
+  }
   const planTier = await getPlanTierForOwner(ownerId);
   const rows = await prisma.scheduledPost.findMany({
     where: {

@@ -31,6 +31,18 @@ function isDisplayedEntitlementManualPro(row: OwnerEntitlementDisplay): boolean 
   return st === "active" || st === "manual";
 }
 
+const PROVIDER_ENTITLEMENT_SOURCES = new Set(["provider", "stripe"]);
+
+/** Provider-billed Pro (webhook → owner_entitlements); display-only — aligns with resolver active/trialing/past_due. */
+function isDisplayedEntitlementProviderPro(row: OwnerEntitlementDisplay): boolean {
+  if (entitlementExpired(row.expiresAtIso)) return false;
+  const tier = row.planTier.trim().toLowerCase();
+  if (tier !== "pro") return false;
+  if (!PROVIDER_ENTITLEMENT_SOURCES.has(row.source.trim().toLowerCase())) return false;
+  const st = row.status.trim().toLowerCase();
+  return st === "active" || st === "trialing" || st === "past_due";
+}
+
 export type UpgradePricingFlowProps = {
   ownerId: string;
   resolvedPlanTier: PlanTier;
@@ -62,6 +74,11 @@ export function UpgradePricingFlow({
     resolvedPlanTier === "pro"
     && entitlement != null
     && isDisplayedEntitlementManualPro(entitlement);
+
+  const providerProGranted =
+    resolvedPlanTier === "pro"
+    && entitlement != null
+    && isDisplayedEntitlementProviderPro(entitlement);
 
   const resolverLabel = resolvedPlanTier === "pro" ? "Pro" : "Free";
 
@@ -145,7 +162,12 @@ export function UpgradePricingFlow({
           Pro access is active via manual approval (recorded server-side).
         </p>
       ) : null}
-      {resolvedPlanTier === "pro" && !manualProGranted ? (
+      {providerProGranted ? (
+        <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
+          Pro access is active via Stripe subscription (synced from billing webhooks).
+        </p>
+      ) : null}
+      {resolvedPlanTier === "pro" && !manualProGranted && !providerProGranted ? (
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           Pro limits apply from workspace defaults — not via a simulated app purchase. Operators use the entitlement CLI when
           manual approval is granted.
@@ -188,7 +210,11 @@ export function UpgradePricingFlow({
     ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-            {manualProGranted ? "Pro — manual approval" : "Pro — workspace defaults"}
+            {manualProGranted
+              ? "Pro — manual approval"
+              : providerProGranted
+                ? "Pro — Stripe subscription"
+                : "Pro — workspace defaults"}
           </span>
           <Link
             href="/settings"

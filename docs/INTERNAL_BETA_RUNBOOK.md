@@ -205,9 +205,26 @@ Important:
 2. Deploy with the required environment variables.
 3. Verify app starts and shows internal-beta banner.
 
+### Operator invite command (CLI, invite-only beta)
+
+Use the operator-only CLI command (no public signup route):
+
+```bash
+npm run auth:user -- --action=invite --email=tlsghktks8@gmail.com --confirm
+```
+
+Notes:
+
+- The command resolves invite links from canonical URL envs in this order: `PROMI_APP_URL`, `NEXT_PUBLIC_APP_URL`, `NEXTAUTH_URL`.
+- Expected invite link host for production: `https://usepromi.app/accept-invite?token=...`.
+- The CLI prints which `DATABASE_URL` target it is using (`local` vs `remote`) before mutation.
+- In non-production runtime, mutating actions against a remote DB are blocked by default. To allow intentionally:
+  - `PROMI_AUTH_CLI_ALLOW_REMOTE_DB_MUTATIONS=1 npm run auth:user -- --action=invite --email=<email> --confirm`
+
 ## 5) Post-deploy smoke test
 
 - [ ] App loads and internal-beta banner is visible.
+- [ ] User-facing sign-in entry point works at `https://usepromi.app/login` (avoid sending testers to `/api/auth/signin`).
 - [ ] Create/generate/edit works.
 - [ ] Save draft works.
 - [ ] Connect/reconnect X works (if X env is configured).
@@ -233,6 +250,8 @@ Verify job response and Scheduled/History updates.
 1. Use a post/account path that surfaces reconnect guidance.
 2. Start reconnect from UI (`/settings/accounts` or action links).
 3. Verify callback completes and account status updates.
+4. For successful X OAuth on production canonical host, expected app landing is:
+   - `https://usepromi.app/settings/accounts?connected=x`
 
 ### X Developer Portal app info (production)
 

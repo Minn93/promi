@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { accountGateNextResponse, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { getPromiCanonicalAppUrl } from "@/src/lib/billing/app-url";
 import {
@@ -38,6 +39,9 @@ export async function POST() {
   if (!ownerId) {
     return NextResponse.json({ error: "authentication_required" }, { status: 401 });
   }
+
+  const gate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
+  if (gate) return accountGateNextResponse(gate);
 
   const stripe = new Stripe(stripeSecret);
 

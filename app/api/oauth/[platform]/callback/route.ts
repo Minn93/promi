@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
+import { getXConfig } from "@/src/lib/platforms/x/client";
 import { getPlatformAuthProvider } from "@/src/lib/platform-auth/core/registry";
 import { asPlatform, connectAccountFromOAuth } from "@/src/lib/services/connected-accounts/service";
 
@@ -11,6 +13,13 @@ type Params = {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function oauthCallbackErrorCode(err: unknown): string {
+  if (err instanceof Error && (err.message === "account_unavailable" || err.message === "email_verification_required")) {
+    return err.message;
+  }
+  return "oauth_callback_failed";
+}
 
 export async function GET(request: Request, { params }: Params) {
   const { platform: raw } = await params;
@@ -27,6 +36,11 @@ export async function GET(request: Request, { params }: Params) {
 
   try {
     const ownerId = await getCurrentOwnerId();
+    const requireVerifiedEmail = platform === "x" && getXConfig().enableRealPublish;
+    const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail });
+    if (policyGate) {
+      throw new Error(policyGate.kind);
+    }
     const provider = getPlatformAuthProvider(platform);
     const callback = await provider.exchangeCallback({
       code,
@@ -53,7 +67,7 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.redirect(redirectUrl.toString(), { status: 302 });
   } catch (err) {
     const redirectUrl = new URL("/settings/accounts", requestUrl.origin);
-    redirectUrl.searchParams.set("oauth_error", err instanceof Error ? err.message : "OAuth callback failed.");
+    redirectUrl.searchParams.set("oauth_error", oauthCallbackErrorCode(err));
     return NextResponse.redirect(redirectUrl.toString(), { status: 302 });
   }
 }

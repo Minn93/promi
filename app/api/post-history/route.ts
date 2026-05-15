@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,8 @@ function isUuid(v: string): boolean {
 
 export async function GET(request: Request) {
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  if (policyGate) return accountGateApiError(policyGate);
   const { searchParams } = new URL(request.url);
   const scheduledPostId = asNonEmptyString(searchParams.get("scheduledPostId"));
   const limitRaw = Number(searchParams.get("limit") ?? "100");
@@ -29,7 +32,13 @@ export async function GET(request: Request) {
 
   try {
     const rows = await prisma.postHistory.findMany({
-      where: scheduledPostId ? { ownerId, scheduledPostId } : { ownerId },
+      where: {
+        ownerId,
+        scheduledPost: {
+          ownerId,
+          ...(scheduledPostId ? { id: scheduledPostId } : {}),
+        },
+      },
       orderBy: [{ createdAt: "desc" }],
       take: limit,
       include: {

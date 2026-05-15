@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
+import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { getXConfig } from "@/src/lib/platforms/x/client";
 import { getPlanConfig, isLimitReached } from "@/src/lib/plans/config";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 import { getPlatformAuthProvider } from "@/src/lib/platform-auth/core/registry";
@@ -23,6 +25,9 @@ export async function GET(request: Request, { params }: Params) {
 
   try {
     const ownerId = await getCurrentOwnerId();
+    const requireVerifiedEmail = platform === "x" && getXConfig().enableRealPublish;
+    const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail });
+    if (policyGate) return accountGateApiError(policyGate);
     const plan = getPlanConfig(await getPlanTierForOwner(ownerId));
     const accounts = await listAccounts(ownerId);
     const activeCount = accounts.filter((item) => item.status !== "revoked").length;

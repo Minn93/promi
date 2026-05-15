@@ -48,6 +48,42 @@ enum PostHistoryEventType {
   retried
 }
 
+/// Phase 14.4 — DB-backed credentials; User.id maps to Promi owner_id in real-auth mode.
+/// Phase 14.9 — `password_hash` null until invite accept or `create` with password.
+model User {
+  id            String    @id @default(cuid()) @map("id")
+  email         String    @unique @map("email")
+  passwordHash  String?   @map("password_hash")
+  emailVerified DateTime? @map("email_verified") @db.Timestamptz(6)
+  disabled      Boolean   @default(false) @map("disabled")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  oneTimeTokens AuthOneTimeToken[]
+
+  @@map("users")
+}
+
+/// Phase 14.7 — single-use hashed tokens (reset, invite, verify). Plaintext exists only in email/handlers.
+model AuthOneTimeToken {
+  id         String    @id @default(cuid()) @map("id")
+  userId     String    @map("user_id")
+  /// e.g. password_reset, invite_accept, email_verify
+  type       String    @map("type")
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  metadata   Json?     @map("metadata")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([type, tokenHash], map: "auth_one_time_tokens_type_token_hash_key")
+  @@index([userId, type, createdAt], map: "auth_one_time_tokens_user_id_type_created_at_idx")
+  @@index([expiresAt], map: "auth_one_time_tokens_expires_at_idx")
+  @@map("auth_one_time_tokens")
+}
+
 model ScheduledPost {
   id                  String              @id @default(uuid()) @map("id")
   // Phase 12.1-A expand step: nullable until backfill/constrain phases.

@@ -73,9 +73,43 @@ if (!isProd) {
   if (process.env.DISABLE_AUTO_SCHEDULER_DEV === "1") {
     warnings.push("DISABLE_AUTO_SCHEDULER_DEV is enabled; scheduler automation may be blocked.");
   }
+} else if (parseBool(process.env.PROMI_AUTH_PRODUCT_READY)) {
+  infos.push("Profile: production with PROMI_AUTH_PRODUCT_READY (Auth.js + Prisma User / closed beta posture).");
+  if (!hasNonEmpty("AUTH_SECRET") && !hasNonEmpty("NEXTAUTH_SECRET")) {
+    errors.push("AUTH_SECRET or NEXTAUTH_SECRET is required when PROMI_AUTH_PRODUCT_READY=1 in production.");
+  }
+  if (!hasNonEmpty("CRON_SECRET")) {
+    errors.push("CRON_SECRET is required in production for scheduler job authorization.");
+  }
+  if (!hasNonEmpty("OPENAI_API_KEY")) {
+    errors.push("OPENAI_API_KEY is required for core copy generation flow in production.");
+  }
+  if (!hasNonEmpty("UPSTASH_REDIS_REST_URL") || !hasNonEmpty("UPSTASH_REDIS_REST_TOKEN")) {
+    errors.push(
+      "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required in production when PROMI_AUTH_PRODUCT_READY=1 (shared rate-limit store; API routes fail closed without it).",
+    );
+  }
+  if (hasNonEmpty("AUTH_USER_PASSWORD")) {
+    warnings.push(
+      "AUTH_USER_PASSWORD is set while PROMI_AUTH_PRODUCT_READY=1 — env Credentials are ignored for sign-in; prefer removing from production.",
+    );
+  }
+
+  const hasXOAuthConfig =
+    hasNonEmpty("X_CLIENT_ID") && hasNonEmpty("X_CLIENT_SECRET") && hasNonEmpty("X_OAUTH_REDIRECT_URI");
+  if (!hasXOAuthConfig) {
+    warnings.push("X OAuth env vars are incomplete. Account connection falls back to mock connect behavior.");
+  }
+  if (process.env.ALLOW_UNAUTH_SCHEDULER_DEV === "1") {
+    warnings.push("ALLOW_UNAUTH_SCHEDULER_DEV is enabled; keep this off in production.");
+  }
+  if (process.env.DISABLE_AUTO_SCHEDULER_DEV === "1") {
+    warnings.push("DISABLE_AUTO_SCHEDULER_DEV is enabled; scheduler automation may be blocked.");
+  }
 } else {
-  infos.push("Profile: production public mode request (unsafe until real auth + real billing are implemented).");
-  infos.push("Expected behavior: app blocks startup via internal-beta safety guard.");
+  infos.push(
+    "Profile: production — not internal beta and PROMI_AUTH_PRODUCT_READY is off; app shell is blocked via layout until one of those is enabled.",
+  );
 }
 
 logSection("Promi internal-beta config check");

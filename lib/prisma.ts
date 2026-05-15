@@ -21,7 +21,12 @@ function hasConnectedAccountMetadataField(client: PrismaClient): boolean {
 
 function hasRequiredDelegates(client: PrismaClient): boolean {
   const raw = client as unknown as Record<string, unknown>;
-  return Boolean(raw.scheduledPost && raw.postHistory && (raw.connectedAccount || raw.connectedAccounts));
+  return Boolean(
+    raw.scheduledPost &&
+      raw.postHistory &&
+      (raw.connectedAccount || raw.connectedAccounts) &&
+      raw.authOneTimeToken,
+  );
 }
 
 function createClient() {
@@ -54,6 +59,11 @@ function getPrismaClient() {
   if (!hasConnectedAccountMetadataField(client)) {
     throw new Error(
       "Prisma client is stale and missing ConnectedAccount.metadataJson. Run `npm run prisma:generate` and restart dev server.",
+    );
+  }
+  if (!(client as unknown as Record<string, unknown>).authOneTimeToken) {
+    throw new Error(
+      "Prisma client is stale and missing AuthOneTimeToken. Run `npm run prisma:generate` and restart dev server.",
     );
   }
   globalForPrisma.prisma = client;

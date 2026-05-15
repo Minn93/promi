@@ -1,5 +1,7 @@
 import type { ConnectedAccount, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assertOwnerAccountGates, getOwnerAccountGateSnapshot } from "@/src/lib/auth/user-status";
+import { isInternalBetaModeServer } from "@/src/lib/internal-beta-mode";
 import { ensurePlatformRegistry } from "@/src/lib/platforms";
 import { getPublisher } from "@/src/lib/platforms/core/registry";
 import { PlatformPublishError, PUBLISH_ERROR_CODES, toPlatformPublishError } from "@/src/lib/platforms/core/errors";
@@ -84,6 +86,36 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
   }
 
   const platform = asPlatform(post.platform);
+
+  let ownerGateSnapshotCache: Awaited<ReturnType<typeof getOwnerAccountGateSnapshot>> | null = null;
+  const loadOwnerGateSnapshot = async () => {
+    if (ownerGateSnapshotCache === null) {
+      ownerGateSnapshotCache = await getOwnerAccountGateSnapshot(post.ownerId);
+    }
+    return ownerGateSnapshotCache;
+  };
+
+  if (!isInternalBetaModeServer()) {
+    const snap = await loadOwnerGateSnapshot();
+    const disabledOrMissing = assertOwnerAccountGates(snap, { requireVerifiedEmail: false });
+    if (disabledOrMissing) {
+      const failedAt = new Date();
+      const message = "Publishing is not available for this account.";
+      await prisma.$transaction(async (tx) => {
+        await persistPublishFailure(tx, {
+          scheduledPostId: post.id,
+          ownerId: post.ownerId,
+          accountId: post.accountId ?? null,
+          platform,
+          code: PUBLISH_ERROR_CODES.VALIDATION_FAILED,
+          message,
+          failedAt,
+          needsReconnect: false,
+        });
+      });
+      return { status: "failed", message };
+    }
+  }
 
   let workingAccount = await findConnectedAccountForPost(prisma, post.id, post.ownerId, post.accountId, platform);
   if (!workingAccount && post.accountId) {
@@ -178,6 +210,28 @@ export async function publishPost(postId: string): Promise<PublishPostServiceRes
         });
         return { status: requiresReconnect(code) ? "needs_reconnect" : "failed", message };
       }
+    }
+  }
+
+  if (!isInternalBetaModeServer() && !isMock && platform === "x" && xConfig.enableRealPublish) {
+    const snap = await loadOwnerGateSnapshot();
+    const verifyBlock = assertOwnerAccountGates(snap, { requireVerifiedEmail: true });
+    if (verifyBlock) {
+      const failedAt = new Date();
+      const message = "Publishing is not available until the account email is verified.";
+      await prisma.$transaction(async (tx) => {
+        await persistPublishFailure(tx, {
+          scheduledPostId: post.id,
+          ownerId: post.ownerId,
+          accountId: workingAccount?.id ?? post.accountId ?? null,
+          platform,
+          code: PUBLISH_ERROR_CODES.VALIDATION_FAILED,
+          message,
+          failedAt,
+          needsReconnect: false,
+        });
+      });
+      return { status: "failed", message };
     }
   }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
+import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 
 export const runtime = "nodejs";
@@ -25,6 +26,8 @@ function isUuid(v: string): boolean {
 
 export async function GET(_: Request, { params }: Params) {
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  if (policyGate) return accountGateApiError(policyGate);
   const { id } = await params;
   const validId = asNonEmptyString(id);
   if (!validId || !isUuid(validId)) {
@@ -47,6 +50,8 @@ export async function GET(_: Request, { params }: Params) {
 
 export async function PATCH(request: Request, { params }: Params) {
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
+  if (policyGate) return accountGateApiError(policyGate);
   const { id } = await params;
   const validId = asNonEmptyString(id);
   if (!validId || !isUuid(validId)) {

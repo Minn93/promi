@@ -40,14 +40,19 @@ export default function RootLayout({
         <body className="min-h-full bg-zinc-50 font-sans dark:bg-zinc-900">
           <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center px-6 py-10">
             <section className="w-full rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
-              <h1 className="text-lg font-semibold">Promi public launch mode is blocked</h1>
+              <h1 className="text-lg font-semibold">Promi production app shell is blocked</h1>
               <p className="mt-2">
-                Real auth and real billing are not implemented yet. This deployment must run in
-                internal beta mode.
+                This deployment has <code>PROMI_INTERNAL_BETA_MODE=0</code> without product-ready auth enabled. The
+                dashboard is not available until you either run in internal beta or explicitly enable Auth MVP.
               </p>
               <p className="mt-2">
-                Set <code>PROMI_INTERNAL_BETA_MODE=1</code> (and
-                <code> NEXT_PUBLIC_PROMI_INTERNAL_BETA_MODE=1</code>) to continue internal testing.
+                For internal testing, set <code>PROMI_INTERNAL_BETA_MODE=1</code> and{" "}
+                <code>NEXT_PUBLIC_PROMI_INTERNAL_BETA_MODE=1</code>.
+              </p>
+              <p className="mt-2">
+                For closed beta with DB-backed Auth.js, set <code>PROMI_AUTH_PRODUCT_READY=1</code>, provision users via{" "}
+                <code>npm run auth:user</code>, and keep <code>PROMI_PUBLIC_APP_READY</code> / public signup off —
+                see <code>docs/PHASE14_4_AUTH_USER_MODEL.md</code>.
               </p>
             </section>
           </main>

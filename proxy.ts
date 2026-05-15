@@ -3,12 +3,21 @@ import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { isInternalBetaModeServer } from "@/src/lib/internal-beta-mode";
 
+/**
+ * Edge guard for real-auth mode only (`PROMI_INTERNAL_BETA_MODE=0`).
+ * Does not run for: `/api/auth/*`, webhooks, scheduler (omit from `config.matcher`).
+ * Route handlers remain authoritative for `getCurrentOwnerId()` and business auth.
+ */
 const PROTECTED_PAGE_PREFIXES = [
   "/create",
   "/scheduled",
   "/history",
   "/analytics",
   "/settings",
+  "/upgrade",
+  "/products",
+  "/drafts",
+  "/performance",
   "/ops",
 ];
 
@@ -17,6 +26,9 @@ const PROTECTED_API_PREFIXES = [
   "/api/post-history",
   "/api/connected-accounts",
   "/api/oauth/",
+  "/api/generate",
+  "/api/uploads/",
+  "/api/billing/",
 ];
 
 function isProtectedPagePath(pathname: string): boolean {
@@ -55,8 +67,9 @@ export default async function proxy(request: NextRequest) {
     );
   }
 
-  const signInUrl = new URL("/api/auth/signin", request.nextUrl.origin);
-  signInUrl.searchParams.set("callbackUrl", request.nextUrl.href);
+  const signInUrl = new URL("/login", request.nextUrl.origin);
+  const callbackUrl = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  signInUrl.searchParams.set("callbackUrl", callbackUrl);
   return NextResponse.redirect(signInUrl);
 }
 
@@ -68,10 +81,17 @@ export const config = {
     "/history/:path*",
     "/analytics/:path*",
     "/settings/:path*",
+    "/upgrade/:path*",
+    "/products/:path*",
+    "/drafts/:path*",
+    "/performance/:path*",
     "/ops/:path*",
     "/api/scheduled-posts/:path*",
     "/api/post-history/:path*",
     "/api/connected-accounts/:path*",
     "/api/oauth/:path*",
+    "/api/generate",
+    "/api/uploads/:path*",
+    "/api/billing/:path*",
   ],
 };

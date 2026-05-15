@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
+import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 
 export const runtime = "nodejs";
@@ -52,6 +53,8 @@ function parseBody(raw: unknown): EditBody | null {
 
 export async function PATCH(request: Request, { params }: Params) {
   const ownerId = await getCurrentOwnerId();
+  const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
+  if (policyGate) return accountGateApiError(policyGate);
   const { id } = await params;
   const validId = asNonEmptyString(id);
   if (!validId || !isUuid(validId)) {
