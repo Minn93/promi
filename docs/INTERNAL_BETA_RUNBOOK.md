@@ -10,6 +10,9 @@ Set these for production internal beta deployments:
 - `PROMI_INTERNAL_BETA_MODE=1`
 - `NEXT_PUBLIC_PROMI_INTERNAL_BETA_MODE=1`
 - `PROMI_INTERNAL_BETA_OWNER_ID=<single-owner-id>`
+- `PROMI_APP_URL=https://usepromi.app`
+- `NEXT_PUBLIC_APP_URL=https://usepromi.app`
+- `NEXTAUTH_URL=https://usepromi.app`
 - `DATABASE_URL`
 - `CRON_SECRET`
 - `OPENAI_API_KEY`
@@ -27,7 +30,9 @@ Notes:
 
 - Do not store secrets in repo files.
 - Do not set `PROMI_INTERNAL_BETA_MODE=0` for internal beta deployments.
-- Auth.js real-auth env vars (`AUTH_SECRET`, `AUTH_USER_EMAIL`, `AUTH_USER_PASSWORD`) are not required for internal beta mode.
+- Production canonical host is `https://usepromi.app`; `https://www.usepromi.app` is secondary only.
+- Keep `https://promi-pi.vercel.app` available as a technical/deployment fallback URL.
+- For production **internal beta**, `AUTH_SECRET` is optional if you do not exercise Auth.js sign-in. For **closed beta** (`PROMI_INTERNAL_BETA_MODE=0` and `PROMI_AUTH_PRODUCT_READY=1`), configure `AUTH_SECRET` and provision users with `npm run auth:user` — **`docs/PHASE14_4_AUTH_USER_MODEL.md`**.
 
 ## 2) Local preflight before deployment
 
@@ -95,8 +100,9 @@ npm run entitlement:manage -- --action=revoke --ownerId=<owner_id> --confirm
 **Operator-enabled Stripe Checkout (Phase 13.2.4, rehearsal-only default):**
 
 - **`POST /api/billing/checkout-session`** creates a Stripe **hosted** Checkout Session when **`PROMI_BILLING_ENABLED=1`**, **`PROMI_BILLING_PROVIDER=stripe`**, Stripe keys/`STRIPE_PRO_PRICE_ID`/canonical **`PROMI_APP_URL`** (or documented fallbacks) are set. Caller must be an **authenticated Promi owner** — **`owner_id`** is taken **only** from session (`getCurrentOwnerId`).
-- Returning to **`/upgrade?checkout=success`** is **not** payment or entitlement proof. **Webhook delivery** (**`checkout.session.completed`**, **`customer.subscription.*`**) drives **`billing_*`** mirrors and then **`owner_entitlements`** (**`provider_sync`** audits). Use **Stripe test mode** until **Phase 13.2.5** captures E2E evidence.
-- Public paid SaaS stays **NO-GO** until checkout + webhook rehearsals are evidenced end-to-end.
+- Returning to **`/upgrade?checkout=success`** is **not** payment or entitlement proof. **Webhook delivery** (**`checkout.session.completed`**, **`customer.subscription.*`**) drives **`billing_*`** mirrors and then **`owner_entitlements`** (**`provider_sync`** audits). Use **Stripe test mode**.
+- Record the full **hosted Checkout** path in **`docs/PHASE13_2_5_STRIPE_E2E_EVIDENCE.md`** (**Phase 13.2.5**), **provider cancel** in **`docs/PHASE13_2_6_STRIPE_DOWNGRADE_EVIDENCE.md`** (**13.2.6 Scenario A**), and **manual lock** in **`docs/PHASE13_2_8_MANUAL_OVERRIDE_EVIDENCE.md`** (**13.2.8**), each with **GO/NO-GO** (or waiver for **13.2.8** per soak plan). **Before Stripe live keys or public paid launch**, follow **`docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`** (monitoring, **`npm run billing:health`**, rollback, approver sign-off). **Before placing `sk_live_*` in Production** or enabling paid checkout broadly, follow **`docs/PHASE13_2_9_LIVE_MODE_READINESS.md`** (**Phase 13.2.9**) — env separation (Vercel Production vs Preview), live webhook endpoint + signing secret, commerce/compliance checklist, controlled live rehearsal, **live-mode GO/NO-GO**, and written approval. **Public paid launch remains NO-GO** until those gates pass.
+- Prefer **`PROMI_BILLING_ENABLED=0`** on production internal-beta hosts unless you are deliberately exercising Stripe test rehearsals.
 
 Optional env for upgrade mail drafts: `PROMI_UPGRADE_REQUEST_EMAIL`. Revoke follows the same playbook with `npm run entitlement:revoke -- --ownerId=<owner_id>`.
 
@@ -117,7 +123,18 @@ stripe listen --forward-to localhost:3000/api/webhooks/billing/stripe
 stripe trigger customer.subscription.created
 ```
 
-Operational policy summary: **`docs/PHASE13_2_BILLING_PLAN.md`**. Paid public launch stays **NO-GO** until Checkout + soak complete.
+Full **hosted Checkout subscription** rehearsal (recommended before treating billing as validated): **`docs/PHASE13_2_5_STRIPE_E2E_EVIDENCE.md`**.
+
+**Billing DB health (read-only counts):** `npm run billing:health` — see **`docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`**.
+
+Operational policy summary: **`docs/PHASE13_2_BILLING_PLAN.md`**. Paid public launch stays **NO-GO** until **13.2.5**, **13.2.6**, **13.2.8** (or waiver), **13.2.7** prerequisites, **13.2.9** live readiness planning execution + sign-off, and soak/launch gates are satisfied.
+
+### Stripe live-mode readiness (Phase 13.2.9 — planning)
+
+- **Do not** store **`sk_live_*`**, live **`whsec_`**, or live **`price_`** in repo, Preview env, or shared notes.
+- **Production-only** (Vercel **Production** environment variables): live Stripe secrets, live webhook signing secret, **`PROMI_APP_URL`** matching the production hostname, **`STRIPE_PRO_PRICE_ID`** from Stripe **live** mode.
+- Keep **`PROMI_BILLING_ENABLED=0`** until approvers record **GO** on **`docs/PHASE13_2_9_LIVE_MODE_READINESS.md`** § GO/NO-GO (or equivalent release record).
+- Rollback: **`PROMI_BILLING_ENABLED=0`**, verify **`/upgrade`** hides Checkout CTA, preserve **`billing_webhook_events`**, correct entitlements via CLI — see **`docs/PHASE13_2_9_LIVE_MODE_READINESS.md`** §6 and **`docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`**.
 
 After Phase 12.1-F, owner-id is required (`NOT NULL`) in:
 
@@ -200,7 +217,7 @@ Important:
 - [ ] History shows result.
 - [ ] `/upgrade` shows manual approval / server entitlement framing; **self-serve Stripe** appears **only** when billing flags + Stripe env are intentionally enabled (default: hidden).
 - [ ] Opening `/upgrade/checkout` or `/upgrade/success` in production redirects to `/upgrade`; dev-only playground is not linked in production.
-- [ ] Safety block appears if `PROMI_INTERNAL_BETA_MODE=0` is attempted in production.
+- [ ] Safety block appears if production has `PROMI_INTERNAL_BETA_MODE=0` **and** `PROMI_AUTH_PRODUCT_READY` is not enabled (see **`docs/PHASE14_4_AUTH_USER_MODEL.md`** for closed beta config).
 
 ## 6) Scheduler job test
 
@@ -216,6 +233,16 @@ Verify job response and Scheduled/History updates.
 1. Use a post/account path that surfaces reconnect guidance.
 2. Start reconnect from UI (`/settings/accounts` or action links).
 3. Verify callback completes and account status updates.
+
+### X Developer Portal app info (production)
+
+Use these values in the X Developer Portal for the production app:
+
+- Website URL: `https://usepromi.app`
+- Organization URL: `https://usepromi.app`
+- Terms of Service: `https://usepromi.app/terms`
+- Privacy Policy: `https://usepromi.app/privacy`
+- Callback URL: `https://usepromi.app/api/oauth/x/callback`
 
 ## 8) Owner isolation adversarial smoke (real-auth mode)
 
