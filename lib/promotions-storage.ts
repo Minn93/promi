@@ -2,6 +2,17 @@ import type { Promotion } from "./types";
 
 export const PROMOTIONS_STORAGE_KEY = "promi-promotions";
 
+function getCurrentOwnerStorageKey(): string {
+  if (typeof document === "undefined") {
+    return PROMOTIONS_STORAGE_KEY;
+  }
+  const ownerId = document.body?.dataset?.promiOwnerId?.trim();
+  if (!ownerId) {
+    return PROMOTIONS_STORAGE_KEY;
+  }
+  return `${PROMOTIONS_STORAGE_KEY}:${ownerId}`;
+}
+
 export type PromotionsReadResult = {
   items: Promotion[];
   /** Friendly warning when storage data exists but is unreadable/corrupt. */
@@ -10,7 +21,7 @@ export type PromotionsReadResult = {
 
 export function readPromotions(): PromotionsReadResult {
   if (typeof window === "undefined") return { items: [] };
-  const raw = localStorage.getItem(PROMOTIONS_STORAGE_KEY);
+  const raw = localStorage.getItem(getCurrentOwnerStorageKey());
   if (!raw) return { items: [] };
 
   try {
@@ -41,7 +52,7 @@ export function appendPromotion(promotion: Promotion): void {
   }
   const next = [...loadPromotions(), promotion];
   try {
-    localStorage.setItem(PROMOTIONS_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(getCurrentOwnerStorageKey(), JSON.stringify(next));
   } catch {
     throw new Error("Could not save promotion to localStorage");
   }
@@ -55,7 +66,7 @@ export function upsertPromotion(promotion: Promotion): void {
   const index = current.findIndex((p) => p.id === promotion.id);
   const next = index === -1 ? [...current, promotion] : current.map((p) => (p.id === promotion.id ? promotion : p));
   try {
-    localStorage.setItem(PROMOTIONS_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(getCurrentOwnerStorageKey(), JSON.stringify(next));
   } catch {
     throw new Error("Could not update localStorage");
   }
@@ -67,7 +78,7 @@ export function removePromotionById(id: string): void {
   }
   const next = loadPromotions().filter((p) => p.id !== id);
   try {
-    localStorage.setItem(PROMOTIONS_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(getCurrentOwnerStorageKey(), JSON.stringify(next));
   } catch {
     throw new Error("Could not update localStorage");
   }

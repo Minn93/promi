@@ -74,6 +74,12 @@ Use test account emails intended for rehearsal. Redact as needed in committed ev
 | test-account-04 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
 | test-account-05 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
 
+### 2.1) Logout and isolation regression checks (manual)
+
+- after sign-out, sidebar/menu hidden: PASS / FAIL
+- logged-out protected pages do not show previous data: PASS / FAIL
+- Drafts owner isolation verified: PASS / FAIL
+
 ---
 
 ## 3) Cohort-level self-test gate

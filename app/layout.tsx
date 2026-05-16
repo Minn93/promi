@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { getServerSession } from "next-auth";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
+import { authOptions } from "@/src/lib/auth/next-auth";
 import { isInternalBetaModeServer, isUnsafePublicLaunchAttemptServer } from "@/src/lib/internal-beta-mode";
 import "./globals.css";
 
@@ -23,13 +25,24 @@ export const metadata: Metadata = {
   description: "Promi — SaaS dashboard for promotions",
 };
 
-export default function RootLayout({
+function readAuthenticatedUserId(session: unknown): string | null {
+  if (!session || typeof session !== "object") return null;
+  const raw = (session as { user?: { id?: unknown } }).user?.id;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const internalBetaMode = isInternalBetaModeServer();
   const blockedPublicLaunch = isUnsafePublicLaunchAttemptServer();
+  const session = await getServerSession(authOptions);
+  const authenticatedUserId = readAuthenticatedUserId(session);
+  const showAuthenticatedShell = internalBetaMode || Boolean(authenticatedUserId);
 
   if (blockedPublicLaunch) {
     return (
@@ -66,19 +79,26 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full font-sans">
-        <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-900">
-          <Sidebar />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <Topbar />
-            {internalBetaMode ? (
-              <div className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100 md:px-8">
-                Internal beta mode: single-owner dev auth and simulated billing are enabled.
-              </div>
-            ) : null}
-            <main className="flex-1 p-6 md:p-8">{children}</main>
+      <body
+        className="min-h-full font-sans"
+        data-promi-owner-id={authenticatedUserId ?? ""}
+      >
+        {showAuthenticatedShell ? (
+          <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-900">
+            <Sidebar />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <Topbar />
+              {internalBetaMode ? (
+                <div className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100 md:px-8">
+                  Internal beta mode: single-owner dev auth and simulated billing are enabled.
+                </div>
+              ) : null}
+              <main className="flex-1 p-6 md:p-8">{children}</main>
+            </div>
           </div>
-        </div>
+        ) : (
+          <main className="min-h-screen bg-zinc-50 p-6 dark:bg-zinc-900 md:p-8">{children}</main>
+        )}
       </body>
     </html>
   );
