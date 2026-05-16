@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { AuthSignOutButton } from "@/components/auth-sign-out-button";
 import { ConnectedAccountsPanel } from "@/components/connected-accounts-panel";
 import { readReusablePostTemplates } from "@/lib/reusable-post-templates-storage";
 import { readClientBillingState } from "@/src/lib/billing/client";
@@ -143,6 +144,9 @@ export function SettingsPageContent({ ownerId, signedInEmail, planTier }: Settin
               </p>
             </div>
           ))}
+        </div>
+        <div className="mt-4">
+          <AuthSignOutButton />
         </div>
       </section>
 

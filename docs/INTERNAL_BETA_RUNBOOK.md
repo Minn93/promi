@@ -247,6 +247,8 @@ Latest recorded production canonical-domain smoke (single-account) PASS:
 
 Status: ready to start **Phase 14.18A** multi-account self-test (begin with 3 invite-only test accounts).
 
+For multi-account runs, always sign out between accounts and confirm redirect to `/login`, then verify Settings shows the correct signed-in email for the newly signed-in tester.
+
 ## 6) Scheduler job test
 
 Production-style call:

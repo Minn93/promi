@@ -185,6 +185,8 @@ Run this before promoting any release candidate that changes owner-scoped routes
 - [ ] Create or prepare 3-5 test emails/accounts.
 - [ ] Invite each test account (`auth:user invite`) and record safe evidence.
 - [ ] Complete full core flow per account (accept invite -> login -> generate/create -> schedule/history/published checks).
+- [ ] Logout/sign-out works and returns to `/login` before switching accounts.
+- [ ] Switching accounts shows the correct signed-in email in Settings account overview.
 - [ ] Verify owner isolation across accounts.
 - [ ] Spot-check `/ops` remains blocked for all non-operator accounts.
 - [ ] Record bugs/feedback and decide PASS/PARTIAL/FAIL in `docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`.

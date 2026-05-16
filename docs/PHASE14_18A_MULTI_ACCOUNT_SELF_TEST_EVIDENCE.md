@@ -66,13 +66,13 @@ Decision: **READY TO BEGIN Phase 14.18A multi-account self-test** (start with 3 
 
 Use test account emails intended for rehearsal. Redact as needed in committed evidence.
 
-| Test account email | Invite sent | Invite email delivered | Accept invite opened | Password set | Login succeeded | Settings shows signed-in email | Generate/create succeeded | Schedule flow succeeded | Scheduled list verified | History verified | Published lifecycle verified | Owner isolation verified | `/ops` boundary blocked for this account | Issues/bugs recorded | Final account result |
-|--------------------|-------------|------------------------|----------------------|--------------|-----------------|-------------------------------|---------------------------|-------------------------|-------------------------|------------------|-----------------------------|--------------------------|------------------------------------------|----------------------|----------------------|
-| test-account-01 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-02 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-03 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-04 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-05 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| Test account email | Invite sent | Invite email delivered | Accept invite opened | Password set | Login succeeded | Logout/sign-out works and returns to `/login` | Switching accounts shows correct signed-in email | Generate/create succeeded | Schedule flow succeeded | Scheduled list verified | History verified | Published lifecycle verified | Owner isolation verified | `/ops` boundary blocked for this account | Issues/bugs recorded | Final account result |
+|--------------------|-------------|------------------------|----------------------|--------------|-----------------|-----------------------------------------------|-----------------------------------------------|---------------------------|-------------------------|-------------------------|------------------|-----------------------------|--------------------------|------------------------------------------|----------------------|----------------------|
+| test-account-01 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-02 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-03 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-04 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-05 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
 
 ---
 
@@ -83,7 +83,8 @@ Mark multi-account self-test **PASS** only if all are true:
 - [ ] At least **3 separate test accounts** complete core flow end-to-end.
 - [ ] No owner-isolation leak is found.
 - [ ] `/ops` remains protected from all non-operator test accounts.
-- [ ] Current signed-in email is clearly visible in Settings for each tested account.
+- [ ] Logout/sign-out works and redirects to `/login` for each tested account.
+- [ ] Switching accounts shows the correct signed-in email in Settings.
 - [ ] No critical schedule/publish failure remains unresolved.
 - [ ] Issues are documented with follow-up status.
 
