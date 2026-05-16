@@ -19,7 +19,7 @@ function devEmailLogEnabled(): boolean {
 function mailFromAddress(): string {
   const from = process.env.PROMI_MAIL_FROM?.trim();
   if (from) return from;
-  return "Promi <onboarding@resend.dev>";
+  return "Promi <noreply@usepromi.app>";
 }
 
 /**

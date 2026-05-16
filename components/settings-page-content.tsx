@@ -13,6 +13,7 @@ type ConnectedAccount = {
 
 type SettingsPageContentProps = {
   ownerId: string;
+  signedInEmail: string | null;
   planTier: PlanTier;
 };
 
@@ -28,7 +29,7 @@ const DEFAULT_PREFS: Preferences = {
   defaultPlatform: "instagram",
 };
 
-export function SettingsPageContent({ ownerId, planTier }: SettingsPageContentProps) {
+export function SettingsPageContent({ ownerId, signedInEmail, planTier }: SettingsPageContentProps) {
   const [effectivePlanTier] = useState<PlanTier>(() => {
     if (typeof window === "undefined") return planTier;
     return getClientPlanTier();
@@ -119,7 +120,11 @@ export function SettingsPageContent({ ownerId, planTier }: SettingsPageContentPr
       <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Account overview</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Signed in as <span className="font-medium text-zinc-800 dark:text-zinc-100">{ownerId}</span>
+          Signed in as:{" "}
+          <span className="font-medium text-zinc-800 dark:text-zinc-100">{signedInEmail ?? ownerId}</span>
+        </p>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Owner ID: <span className="font-medium text-zinc-700 dark:text-zinc-300">{ownerId}</span>
         </p>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
           Current plan: <span className="font-medium text-zinc-800 dark:text-zinc-100">{plan.label}</span>

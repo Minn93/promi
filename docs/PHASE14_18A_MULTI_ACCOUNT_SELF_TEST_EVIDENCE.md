@@ -43,7 +43,22 @@ Recorded before running multi-account self-test:
 | Final success redirect | PASS | Landed on `https://usepromi.app/settings/accounts?connected=x` |
 | Connected account UI/update | PASS | UI reflected successful connection/update |
 | Canonical link hygiene (`example.com` / `www` / `promi-pi`) | PASS | No canonical links observed using those hosts |
-| `/ops` operator-only boundary | MANUAL CHECK REQUIRED | Not re-tested in this specific pass |
+| `/ops` operator-only boundary | PASS | Non-operator access returned `404 / Not Found` in production smoke |
+
+---
+
+## 1.2) Production single-account smoke gate (pre-14.18A)
+
+| Check | Result | Notes |
+|------|--------|-------|
+| Login (`https://usepromi.app/login`) | PASS | Credentials flow completed successfully |
+| X login/connect flow | PASS | Callback + connected account behavior normal |
+| Schedule/upload flow | PASS | End-to-end action worked |
+| History display | PASS | Expected activity visible |
+| Owner isolation | PASS | No other account data visible |
+| Invite-only posture | PASS | No public signup exposure introduced |
+
+Decision: **READY TO BEGIN Phase 14.18A multi-account self-test** (start with 3 accounts).
 
 ---
 
@@ -51,13 +66,13 @@ Recorded before running multi-account self-test:
 
 Use test account emails intended for rehearsal. Redact as needed in committed evidence.
 
-| Test account email | Invite sent | Invite email delivered | Accept invite opened | Password set | Login succeeded | Generate/create succeeded | Schedule flow succeeded | Scheduled list verified | History verified | Published lifecycle verified | Owner isolation verified | `/ops` boundary blocked for this account | Issues/bugs recorded | Final account result |
-|--------------------|-------------|------------------------|----------------------|--------------|-----------------|---------------------------|-------------------------|-------------------------|------------------|-----------------------------|--------------------------|------------------------------------------|----------------------|----------------------|
-| test-account-01 | | | | | | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-02 | | | | | | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-03 | | | | | | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-04 | | | | | | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-05 | | | | | | | | | | | | | | PASS / PARTIAL / FAIL |
+| Test account email | Invite sent | Invite email delivered | Accept invite opened | Password set | Login succeeded | Settings shows signed-in email | Generate/create succeeded | Schedule flow succeeded | Scheduled list verified | History verified | Published lifecycle verified | Owner isolation verified | `/ops` boundary blocked for this account | Issues/bugs recorded | Final account result |
+|--------------------|-------------|------------------------|----------------------|--------------|-----------------|-------------------------------|---------------------------|-------------------------|-------------------------|------------------|-----------------------------|--------------------------|------------------------------------------|----------------------|----------------------|
+| test-account-01 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-02 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-03 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-04 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| test-account-05 | | | | | | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
 
 ---
 
@@ -68,6 +83,7 @@ Mark multi-account self-test **PASS** only if all are true:
 - [ ] At least **3 separate test accounts** complete core flow end-to-end.
 - [ ] No owner-isolation leak is found.
 - [ ] `/ops` remains protected from all non-operator test accounts.
+- [ ] Current signed-in email is clearly visible in Settings for each tested account.
 - [ ] No critical schedule/publish failure remains unresolved.
 - [ ] Issues are documented with follow-up status.
 

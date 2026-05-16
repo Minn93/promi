@@ -116,8 +116,18 @@ Run after updating X Developer Portal settings to production URLs:
 - [x] Connected account row/UI is created or updated correctly after callback.
 - [x] X schedule/publish flow still works after reconnect.
 - [x] No generated canonical link for app/auth/email flows uses `example.com`, `www.usepromi.app`, or `promi-pi.vercel.app`.
-- [ ] `/ops` remains operator-only and blocked for non-operator users (manual re-check still required in this pass).
+- [x] `/ops` remains operator-only and blocked for non-operator users (`404 / Not Found` observed in production smoke).
 - [x] Invite-only posture remains unchanged (no public signup/public-launch messaging introduced).
+
+### Latest production single-account smoke (canonical domain)
+
+- [x] Login at `https://usepromi.app/login`: PASS
+- [x] Non-operator `/ops` access: PASS (`404 / Not Found`)
+- [x] X login/connect flow: PASS
+- [x] Schedule/upload flow: PASS
+- [x] History display: PASS
+- [x] Owner isolation (no other account data visible): PASS
+- [x] **Phase 14.18A multi-account self-test is ready to begin** (start with 3 accounts under invite-only posture).
 
 ## Deployment evidence (record for each rollout)
 

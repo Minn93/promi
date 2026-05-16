@@ -236,6 +236,17 @@ Notes:
 - [ ] Opening `/upgrade/checkout` or `/upgrade/success` in production redirects to `/upgrade`; dev-only playground is not linked in production.
 - [ ] Safety block appears if production has `PROMI_INTERNAL_BETA_MODE=0` **and** `PROMI_AUTH_PRODUCT_READY` is not enabled (see **`docs/PHASE14_4_AUTH_USER_MODEL.md`** for closed beta config).
 
+Latest recorded production canonical-domain smoke (single-account) PASS:
+
+- Login (`https://usepromi.app/login`)
+- Non-operator `/ops` boundary (`404 / Not Found`)
+- X login/connect
+- Schedule/upload
+- History display
+- Owner isolation (no cross-account data visible)
+
+Status: ready to start **Phase 14.18A** multi-account self-test (begin with 3 invite-only test accounts).
+
 ## 6) Scheduler job test
 
 Production-style call:

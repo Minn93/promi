@@ -153,7 +153,26 @@ function devEmailLogEnabled() {
 }
 
 function mailFromAddress() {
-  return process.env.PROMI_MAIL_FROM?.trim() || "Promi <onboarding@resend.dev>";
+  return process.env.PROMI_MAIL_FROM?.trim() || "Promi <noreply@usepromi.app>";
+}
+
+function summarizeMailFrom() {
+  const configured = process.env.PROMI_MAIL_FROM?.trim() || "";
+  const effective = mailFromAddress();
+  const parsed = /^(.*?)<([^>]+)>$/.exec(effective);
+  const displayName = (parsed?.[1] ?? "").trim();
+  const addr = (parsed?.[2] ?? effective).trim();
+  const at = addr.lastIndexOf("@");
+  const domain = at >= 0 ? addr.slice(at + 1).toLowerCase() : null;
+  const localPart = at >= 0 ? addr.slice(0, at) : addr;
+  const redactedLocal =
+    localPart.length <= 2 ? `${localPart[0] ?? "*"}*` : `${localPart.slice(0, 2)}***`;
+  const redactedEmail = domain ? `${redactedLocal}@${domain}` : `${redactedLocal}`;
+  return {
+    promiMailFromDetected: configured.length > 0,
+    senderDomain: domain,
+    senderRedacted: displayName ? `${displayName} <${redactedEmail}>` : redactedEmail,
+  };
 }
 
 function getInviteMailBaseUrl() {
@@ -410,6 +429,8 @@ async function main() {
 
     if (action === "invite") {
       const expiresMinutes = parseExpiresMinutesInvite(args.expiresMinutes);
+      const senderInfo = summarizeMailFrom();
+      console.info("[auth:invite] sender_config", senderInfo);
       if (isMailStrictEnvironment() && !process.env.RESEND_API_KEY?.trim()) {
         console.error("invite requires RESEND_API_KEY in production or when PROMI_AUTH_PRODUCT_READY is enabled.");
         process.exitCode = 1;
@@ -440,7 +461,11 @@ async function main() {
       try {
         await sendInviteMailCli(user.email, rawToken);
       } catch (err) {
-        console.error("[auth:invite] mail_failed", err instanceof Error ? err.message : String(err));
+        console.error(
+          "[auth:invite] mail_failed",
+          err instanceof Error ? err.message : String(err),
+          senderInfo,
+        );
         process.exitCode = 1;
         return;
       }
@@ -457,6 +482,8 @@ async function main() {
             tokenPreview,
             expiresAt: row.expiresAt.toISOString(),
             inviteBaseUrl: base,
+            senderDomain: senderInfo.senderDomain,
+            senderRedacted: senderInfo.senderRedacted,
             note: "Invite email sent. Plaintext token is intentionally not printed.",
           },
           null,
