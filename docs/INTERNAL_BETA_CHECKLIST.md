@@ -191,6 +191,12 @@ Run this before promoting any release candidate that changes owner-scoped routes
 - [ ] Spot-check `/ops` remains blocked for all non-operator accounts.
 - [ ] Record bugs/feedback and decide PASS/PARTIAL/FAIL in `docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`.
 
+Latest recorded account execution (14.18A):
+
+- [x] `tlsghktks8.2@gmail.com` (`ownerId=cmp6xp4kt0000kcsxkxvjthne`) completed PASS as a Free-plan rehearsal account:
+  invite -> password setup -> login -> signed-in email visibility -> X connect -> create/generate -> schedule/upload -> history/published -> owner/drafts isolation -> logout redirect -> logged-out shell protection -> non-operator `/ops` 404.
+- [ ] Remaining account executions pending (need at least 3 account-level PASS/PARTIAL results before final 14.18A gate decision).
+
 ## Must not ship as public SaaS yet
 
 - Real auth/session provider for multi-tenant production.

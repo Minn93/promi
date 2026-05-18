@@ -249,6 +249,12 @@ Status: ready to start **Phase 14.18A** multi-account self-test (begin with 3 in
 
 For multi-account runs, always sign out between accounts and confirm redirect to `/login`, then verify Settings shows the correct signed-in email for the newly signed-in tester.
 
+Latest recorded 14.18A account result:
+
+- `tlsghktks8.2@gmail.com` (`ownerId=cmp6xp4kt0000kcsxkxvjthne`) completed PASS under Free-plan rehearsal posture after `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` redeploy.
+- PASS checks included invite delivery, accept-invite/password setup/login, signed-in email visibility in Settings, X connect/login, create/generate, schedule/upload, history/published lifecycle, owner/drafts isolation, sign-out redirect, logged-out shell/menu hiding, logged-out protected-page behavior, and non-operator `/ops` 404.
+- Keep invite-only posture and operator `/ops` boundary; this is still internal rehearsal evidence, not public launch readiness.
+
 ## 6) Scheduler job test
 
 Production-style call:

@@ -69,7 +69,7 @@ Use test account emails intended for rehearsal. Redact as needed in committed ev
 | Test account email | Invite sent | Invite email delivered | Accept invite opened | Password set | Login succeeded | Logout/sign-out works and returns to `/login` | Switching accounts shows correct signed-in email | Generate/create succeeded | Schedule flow succeeded | Scheduled list verified | History verified | Published lifecycle verified | Owner isolation verified | `/ops` boundary blocked for this account | Issues/bugs recorded | Final account result |
 |--------------------|-------------|------------------------|----------------------|--------------|-----------------|-----------------------------------------------|-----------------------------------------------|---------------------------|-------------------------|-------------------------|------------------|-----------------------------|--------------------------|------------------------------------------|----------------------|----------------------|
 | test-account-01 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-02 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| tlsghktks8.2@gmail.com | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | Resolved during run: signed-in email visibility in Settings, sign-out/account-switch UX, sidebar/menu post-logout visibility, Drafts localStorage owner scoping, local Resend sender config, plan label mismatch until `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` + redeploy | PASS |
 | test-account-03 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
 | test-account-04 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
 | test-account-05 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
@@ -79,6 +79,14 @@ Use test account emails intended for rehearsal. Redact as needed in committed ev
 - after sign-out, sidebar/menu hidden: PASS / FAIL
 - logged-out protected pages do not show previous data: PASS / FAIL
 - Drafts owner isolation verified: PASS / FAIL
+
+### 2.2) Account result snapshot — `tlsghktks8.2@gmail.com`
+
+- ownerId: `cmp6xp4kt0000kcsxkxvjthne`
+- expected plan posture for this rehearsal account: `Free`
+- result: PASS across invite/login/settings/X/create/schedule/history/isolation/logout checks
+- `/ops` non-operator boundary: PASS (`404 / Not Found`)
+- note: Settings plan display aligned with server entitlement after setting `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` and redeploying
 
 ---
 
@@ -114,7 +122,12 @@ If any gate fails, mark result **PARTIAL** or **FAIL** with blocker notes.
 
 | Issue ID | Severity | Summary | Affected accounts | Status | Owner | Follow-up phase |
 |---------|----------|---------|-------------------|--------|-------|-----------------|
-| | | | | Open / Mitigated / Resolved | | |
+| PH14-18A-SETTINGS-EMAIL | Medium | Settings did not clearly show signed-in email during account-switch rehearsal | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-LOGOUT-UX | High | Sign-out control/account-switch UX was missing; stale-session confusion risk | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-SHELL-POST-LOGOUT | High | Sidebar/menu remained visible after sign-out and could surface stale view state | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-DRAFTS-OWNER-SCOPE | High | Drafts localStorage was not owner-scoped across switched accounts | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-MAIL-SENDER-LOCAL | Low | Local invite sender remained `resend.dev` until env correction | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-PLAN-LABEL-FALLBACK | Medium | Settings plan label appeared Pro until `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` redeploy | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
 
 ---
 
