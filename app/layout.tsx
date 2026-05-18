@@ -42,7 +42,7 @@ export default async function RootLayout({
   const blockedPublicLaunch = isUnsafePublicLaunchAttemptServer();
   const session = await getServerSession(authOptions);
   const authenticatedUserId = readAuthenticatedUserId(session);
-  const showAuthenticatedShell = internalBetaMode || Boolean(authenticatedUserId);
+  const showAuthenticatedShell = Boolean(authenticatedUserId);
 
   if (blockedPublicLaunch) {
     return (
