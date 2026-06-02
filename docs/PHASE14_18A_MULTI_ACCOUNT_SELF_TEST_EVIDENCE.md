@@ -19,14 +19,14 @@
 
 | Field | Value |
 |------|-------|
-| Date/time (UTC) | |
-| Environment | |
+| Date/time (UTC) | 2026-05-18 to 2026-05-19 (operator-run window) |
+| Environment | Production canonical domain (`https://usepromi.app`) with operator-controlled invite accounts |
 | Target URL | `https://usepromi.app` (canonical) |
-| Commit SHA | |
-| Operator | |
-| Approver | |
+| Commit SHA | (recorded in operator deployment notes) |
+| Operator | Internal operator-controlled rehearsal |
+| Approver | Internal |
 | Planned self-test accounts | `3`-`5` |
-| Completed self-test accounts | |
+| Completed self-test accounts | `3` |
 
 ---
 
@@ -68,17 +68,21 @@ Use test account emails intended for rehearsal. Redact as needed in committed ev
 
 | Test account email | Invite sent | Invite email delivered | Accept invite opened | Password set | Login succeeded | Logout/sign-out works and returns to `/login` | Switching accounts shows correct signed-in email | Generate/create succeeded | Schedule flow succeeded | Scheduled list verified | History verified | Published lifecycle verified | Owner isolation verified | `/ops` boundary blocked for this account | Issues/bugs recorded | Final account result |
 |--------------------|-------------|------------------------|----------------------|--------------|-----------------|-----------------------------------------------|-----------------------------------------------|---------------------------|-------------------------|-------------------------|------------------|-----------------------------|--------------------------|------------------------------------------|----------------------|----------------------|
-| test-account-01 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
 | tlsghktks8.2@gmail.com | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | Resolved during run: signed-in email visibility in Settings, sign-out/account-switch UX, sidebar/menu post-logout visibility, Drafts localStorage owner scoping, local Resend sender config, plan label mismatch until `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` + redeploy | PASS |
-| test-account-03 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-04 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
-| test-account-05 | | | | | | PASS / FAIL | PASS / FAIL | | | | | | | | | PASS / PARTIAL / FAIL |
+| tlsghktks8.1@gmail.com | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | Invite host corrected to canonical domain; invite token state rotated/revoked and reissued safely; token/secret mismatch risk clarified in operator notes | PASS |
+| theory8@naver.com | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | Final account run completed with expected Free-plan state and no blocking regressions | PASS |
 
 ### 2.1) Logout and isolation regression checks (manual)
 
 - after sign-out, sidebar/menu hidden: PASS / FAIL
 - logged-out protected pages do not show previous data: PASS / FAIL
 - Drafts owner isolation verified: PASS / FAIL
+
+Final rehearsal checks:
+
+- after sign-out, sidebar/menu hidden: PASS
+- logged-out protected pages do not show previous data: PASS
+- Drafts owner isolation verified: PASS
 
 ### 2.2) Account result snapshot — `tlsghktks8.2@gmail.com`
 
@@ -88,19 +92,39 @@ Use test account emails intended for rehearsal. Redact as needed in committed ev
 - `/ops` non-operator boundary: PASS (`404 / Not Found`)
 - note: Settings plan display aligned with server entitlement after setting `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` and redeploying
 
+### 2.3) Final account snapshot — `theory8@naver.com`
+
+- Invite email delivered: PASS
+- Invite link host uses `https://usepromi.app`: PASS
+- Accept-invite opened: PASS
+- Password setup: PASS
+- Login at `https://usepromi.app/login`: PASS
+- Settings shows signed-in email: PASS
+- Plan display matches expected Free state: PASS
+- Owner isolation: PASS
+- Drafts owner isolation: PASS
+- X connect/login: PASS
+- Create/generate: PASS
+- Schedule/upload: PASS
+- History display / Published lifecycle: PASS
+- Sign out works and redirects to `/login`: PASS
+- After sign-out, sidebar/menu hidden: PASS
+- Logged-out protected pages do not show previous data: PASS
+- `/ops` non-operator access returns `404 / Not Found`: PASS
+
 ---
 
 ## 3) Cohort-level self-test gate
 
 Mark multi-account self-test **PASS** only if all are true:
 
-- [ ] At least **3 separate test accounts** complete core flow end-to-end.
-- [ ] No owner-isolation leak is found.
-- [ ] `/ops` remains protected from all non-operator test accounts.
-- [ ] Logout/sign-out works and redirects to `/login` for each tested account.
-- [ ] Switching accounts shows the correct signed-in email in Settings.
-- [ ] No critical schedule/publish failure remains unresolved.
-- [ ] Issues are documented with follow-up status.
+- [x] At least **3 separate test accounts** complete core flow end-to-end.
+- [x] No owner-isolation leak is found.
+- [x] `/ops` remains protected from all non-operator test accounts.
+- [x] Logout/sign-out works and redirects to `/login` for each tested account.
+- [x] Switching accounts shows the correct signed-in email in Settings.
+- [x] No critical schedule/publish failure remains unresolved.
+- [x] Issues are documented with follow-up status.
 
 If any gate fails, mark result **PARTIAL** or **FAIL** with blocker notes.
 
@@ -123,11 +147,15 @@ If any gate fails, mark result **PARTIAL** or **FAIL** with blocker notes.
 | Issue ID | Severity | Summary | Affected accounts | Status | Owner | Follow-up phase |
 |---------|----------|---------|-------------------|--------|-------|-----------------|
 | PH14-18A-SETTINGS-EMAIL | Medium | Settings did not clearly show signed-in email during account-switch rehearsal | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-LOGIN-PAGE | Medium | First-party `/login` UX was missing for clean account switching and stale-session avoidance | multi-account rehearsal | Resolved | Internal | 14.18A |
 | PH14-18A-LOGOUT-UX | High | Sign-out control/account-switch UX was missing; stale-session confusion risk | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
 | PH14-18A-SHELL-POST-LOGOUT | High | Sidebar/menu remained visible after sign-out and could surface stale view state | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
 | PH14-18A-DRAFTS-OWNER-SCOPE | High | Drafts localStorage was not owner-scoped across switched accounts | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
 | PH14-18A-MAIL-SENDER-LOCAL | Low | Local invite sender remained `resend.dev` until env correction | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
-| PH14-18A-PLAN-LABEL-FALLBACK | Medium | Settings plan label appeared Pro until `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` redeploy | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-INVITE-HOST-LOCALHOST | High | Invite host initially resolved to localhost in local operator flow before canonical env correction | tlsghktks8.1@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-INVITE-TOKEN-STATE | High | Invite token acceptance failures required safe token rotation and operator `rotate-invite` command path | tlsghktks8.1@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-SECRET-MISMATCH-RISK | Medium | Token hash validation mismatch risk between issuance/runtime secrets documented for operators | tlsghktks8.1@gmail.com | Resolved | Internal | 14.18A |
+| PH14-18A-PLAN-LABEL-FALLBACK | Medium | Settings plan label appeared Pro until `PROMI_DEFAULT_PLAN=free` and `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` were set and redeployed | tlsghktks8.2@gmail.com | Resolved | Internal | 14.18A |
 
 ---
 
@@ -135,14 +163,15 @@ If any gate fails, mark result **PARTIAL** or **FAIL** with blocker notes.
 
 | Decision field | Value |
 |---------------|-------|
-| Multi-account self-test result | **PASS / PARTIAL / FAIL** |
-| Approver sign-off | |
-| Date/time (UTC) | |
-| Notes / accepted risk | |
+| Multi-account self-test result | **PASS (operator-controlled 3-account rehearsal)** |
+| Approver sign-off | Internal operator |
+| Date/time (UTC) | 2026-05-19 |
+| Notes / accepted risk | Operator-controlled multi-account rehearsal passed; this is not external cohort completion. Tiny invite-only external cohort remains GO when testers are available. Broader expansion remains PARTIAL GO. Public paid/live billing launch is not implied. |
 
 ---
 
 ## 7) Next-step note
 
-If this rehearsal passes, proceed to real tiny-cohort external testers when available.  
-Until then, do **not** represent this as external beta completion.
+Phase 14.18A operator-controlled 3-account self-test: **PASS**.  
+Proceed to tiny invite-only real external testers when available; do **not** represent this artifact as external cohort completion.  
+Broader expansion remains **PARTIAL GO** pending wider cohort/ops maturity evidence.

@@ -1,73 +1,133 @@
-import Image from "next/image";
 import Link from "next/link";
-import { HomePromotionsSummary } from "@/components/home-promotions-summary";
-import { QuickStartOnboarding } from "@/components/quick-start-onboarding";
-import { ReliabilitySummary } from "@/components/reliability-summary";
-import { mockProducts } from "@/lib/mock-data";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/src/lib/auth/next-auth";
 
-const usd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-});
-
-const SUGGESTED_COUNT = 3;
-
-export default function HomePage() {
-  const suggested = mockProducts.slice(0, SUGGESTED_COUNT);
+export default async function HomePage() {
+  const session = await getServerSession(authOptions);
+  const signedIn = typeof session?.user?.id === "string" && session.user.id.trim().length > 0;
+  const inviteEmail = process.env.PROMI_UPGRADE_REQUEST_EMAIL?.trim();
+  const inviteMailto = inviteEmail
+    ? `mailto:${inviteEmail}?subject=${encodeURIComponent("Promi beta invite request")}`
+    : null;
 
   return (
-    <div className="space-y-10">
-      <section aria-labelledby="home-hero-heading" className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 md:p-10">
-        <h1 id="home-hero-heading" className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 md:text-3xl">
-          Pick a product. Finish your promotion.
-        </h1>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 md:text-base">
-          Promi helps new sellers turn product ideas into social promotions in one flow. Pick a
-          product, generate/edit copy, then save a draft or schedule a post.
+    <div className="mx-auto w-full max-w-5xl space-y-10">
+      <section
+        aria-labelledby="landing-hero-heading"
+        className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 md:p-10"
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          Invite-only closed beta
         </p>
+        <h1
+          id="landing-hero-heading"
+          className="mt-3 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 md:text-4xl"
+        >
+          Promi helps you turn product or campaign ideas into scheduled promotional posts.
+        </h1>
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-300 md:text-base">
+          Write promotional posts faster, connect your X/Twitter account, schedule posts, and
+          review publishing history from one focused workspace built for practical day-to-day
+          promotion work.
+        </p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <a
+            href={inviteMailto ?? "#request-invite"}
+            className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            Request invite
+          </a>
+          {signedIn ? (
+            <Link
+              href="/create"
+              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Open workspace
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              Sign in
+            </Link>
+          )}
+        </div>
       </section>
 
-      <HomePromotionsSummary />
-      <ReliabilitySummary />
-      <QuickStartOnboarding />
+      <section className="grid gap-4 md:grid-cols-2">
+        <article className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            The problem
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+            Writing promotional posts from scratch is slow and easy to postpone, especially when
+            you are running a store, shipping orders, and handling customer messages.
+          </p>
+        </article>
+        <article className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Built for
+          </h2>
+          <ul className="mt-3 space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
+            <li>Online sellers and small business owners</li>
+            <li>Creators promoting products or offers</li>
+            <li>Solo founders managing promotion themselves</li>
+          </ul>
+        </article>
+      </section>
 
-      <section aria-labelledby="home-suggested-products-heading">
-        <h2 id="home-suggested-products-heading" className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          Suggested products to promote
+      <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950 md:p-8">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          How Promi works
         </h2>
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {suggested.map((product) => (
-            <li key={product.id}>
-              <Link
-                href={`/create?productId=${encodeURIComponent(product.id)}`}
-                className="promi-card-lift flex gap-3 rounded-lg border border-zinc-200 bg-white p-3 transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out motion-safe:hover:-translate-y-0.5 motion-safe:hover:border-zinc-300 motion-safe:hover:bg-zinc-50 motion-safe:hover:shadow-md motion-safe:hover:shadow-zinc-900/[0.05] dark:border-zinc-800 dark:bg-zinc-950 dark:motion-safe:hover:border-zinc-600 dark:motion-safe:hover:bg-zinc-900 dark:motion-safe:hover:shadow-black/30"
-              >
-                <div className="relative aspect-square w-14 shrink-0 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800">
-                  <Image
-                    src={product.image}
-                    alt={product.name}
-                    fill
-                    className="object-cover"
-                    sizes="56px"
-                  />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                    {product.name}
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                    {usd.format(product.price)} ·{" "}
-                    <span className="text-zinc-600 dark:text-zinc-300">Start promotion</span>
-                  </p>
-                </div>
-              </Link>
-            </li>
-          ))}
+        <ol className="mt-4 grid gap-3 text-sm text-zinc-600 dark:text-zinc-300 md:grid-cols-2">
+          <li className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+            1. Add a product or campaign idea
+          </li>
+          <li className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+            2. Generate a promotional post draft
+          </li>
+          <li className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+            3. Connect X/Twitter
+          </li>
+          <li className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+            4. Schedule and publish
+          </li>
+          <li className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700 md:col-span-2">
+            5. Review publishing history
+          </li>
+        </ol>
+      </section>
+
+      <section
+        id="request-invite"
+        className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900/40 dark:bg-amber-950/30 md:p-8"
+      >
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+          Current beta status
+        </h2>
+        <ul className="mt-3 space-y-2 text-sm text-amber-900 dark:text-amber-100">
+          <li>Invite-only closed beta access</li>
+          <li>X/Twitter-focused real publish flow</li>
+          <li>Billing is not a live paid launch</li>
+          <li>Non-X real publish parity is still partial</li>
+          <li>Product direction is feedback-driven during beta</li>
         </ul>
-        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-          <Link href="/products" className="font-medium text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-300">
-            View all products
-          </Link>
+        <p className="mt-4 text-sm text-amber-900 dark:text-amber-100">
+          {inviteMailto ? (
+            <>
+              To request access, email{" "}
+              <a className="font-medium underline" href={inviteMailto}>
+                the Promi beta team
+              </a>
+              .
+            </>
+          ) : (
+            <>
+              Access is currently invite-only. Use the Sign in button if you already have an invite.
+            </>
+          )}
         </p>
       </section>
     </div>

@@ -32,7 +32,6 @@ const PROTECTED_API_PREFIXES = [
 ];
 
 function isProtectedPagePath(pathname: string): boolean {
-  if (pathname === "/") return true;
   return PROTECTED_PAGE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
@@ -75,7 +74,6 @@ export default async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/",
     "/create/:path*",
     "/scheduled/:path*",
     "/history/:path*",

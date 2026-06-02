@@ -25,6 +25,7 @@ const VALID_ACTIONS = new Set([
   "enable",
   "status",
   "invite",
+  "rotate-invite",
   "issue-reset-token",
   "issue-invite-token",
 ]);
@@ -266,6 +267,26 @@ async function replaceInviteTokenCli(prisma, userId, expiresMinutes) {
   });
 }
 
+async function purgeInviteAndPasswordResetTokensCli(prisma, userId) {
+  const deletedInvite = await prisma.authOneTimeToken.deleteMany({
+    where: {
+      userId,
+      type: TOKEN_TYPE.invite_accept,
+    },
+  });
+  const deletedReset = await prisma.authOneTimeToken.deleteMany({
+    where: {
+      userId,
+      type: TOKEN_TYPE.password_reset,
+    },
+  });
+  return {
+    inviteDeletedCount: deletedInvite.count,
+    passwordResetDeletedCount: deletedReset.count,
+    totalDeletedCount: deletedInvite.count + deletedReset.count,
+  };
+}
+
 async function replacePasswordResetTokenCli(prisma, userId, expiresMinutes) {
   const rawToken = newUrlSafeToken();
   const tokenHash = hashRawToken(rawToken);
@@ -357,7 +378,7 @@ async function main() {
 
   if (!VALID_ACTIONS.has(action)) {
     console.error(
-      "Usage: npm run auth:user -- --action=create|invite|disable|enable|status|issue-reset-token|issue-invite-token --email=<email> [--password=<password>] [--expiresMinutes=<n>] [--confirm]",
+      "Usage: npm run auth:user -- --action=create|invite|rotate-invite|disable|enable|status|issue-reset-token|issue-invite-token --email=<email> [--password=<password>] [--expiresMinutes=<n>] [--confirm]",
     );
     process.exitCode = 2;
     return;
@@ -485,6 +506,85 @@ async function main() {
             senderDomain: senderInfo.senderDomain,
             senderRedacted: senderInfo.senderRedacted,
             note: "Invite email sent. Plaintext token is intentionally not printed.",
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    if (action === "rotate-invite") {
+      const expiresMinutes = parseExpiresMinutesInvite(args.expiresMinutes);
+      const senderInfo = summarizeMailFrom();
+      console.info("[auth:rotate-invite] sender_config", senderInfo);
+      if (isMailStrictEnvironment() && !process.env.RESEND_API_KEY?.trim()) {
+        console.error("rotate-invite requires RESEND_API_KEY in production or when PROMI_AUTH_PRODUCT_READY is enabled.");
+        process.exitCode = 1;
+        return;
+      }
+
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        console.error("No user found for email.");
+        process.exitCode = 1;
+        return;
+      }
+      if (user.disabled) {
+        console.error("User is disabled; enable before rotating invite.");
+        process.exitCode = 1;
+        return;
+      }
+      if (user.passwordHash != null) {
+        console.error("User already has a password. Invite onboarding is no longer valid; use login or forgot-password.");
+        process.exitCode = 1;
+        return;
+      }
+
+      const revoked = await purgeInviteAndPasswordResetTokensCli(prisma, user.id);
+      const { row, rawToken } = await replaceInviteTokenCli(prisma, user.id, expiresMinutes);
+      const tokenHash = hashRawToken(rawToken);
+      const hashLookup = await prisma.authOneTimeToken.findUnique({
+        where: {
+          type_tokenHash: {
+            type: TOKEN_TYPE.invite_accept,
+            tokenHash,
+          },
+        },
+        select: { id: true, userId: true },
+      });
+      const hashLookupMatched = hashLookup?.id === row.id && hashLookup.userId === user.id;
+
+      try {
+        await sendInviteMailCli(user.email, rawToken);
+      } catch (err) {
+        console.error(
+          "[auth:rotate-invite] mail_failed",
+          err instanceof Error ? err.message : String(err),
+          senderInfo,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      const base = getInviteMailBaseUrl();
+      const tokenPreview = `${rawToken.slice(0, 6)}…${rawToken.slice(-4)}`;
+      console.info(
+        JSON.stringify(
+          {
+            ok: true,
+            action: "rotate-invite",
+            userId: user.id,
+            email: user.email,
+            revoked,
+            tokenId: row.id,
+            tokenPreview,
+            tokenExpiresAt: row.expiresAt.toISOString(),
+            tokenHashLookupMatched: hashLookupMatched,
+            inviteUrlHost: base,
+            senderDomain: senderInfo.senderDomain,
+            senderRedacted: senderInfo.senderRedacted,
+            note: "Old invite/password-reset tokens removed; fresh invite token created and email sent. Plaintext token is intentionally not printed.",
           },
           null,
           2,

@@ -245,15 +245,22 @@ Latest recorded production canonical-domain smoke (single-account) PASS:
 - History display
 - Owner isolation (no cross-account data visible)
 
-Status: ready to start **Phase 14.18A** multi-account self-test (begin with 3 invite-only test accounts).
+Status: **Phase 14.18A operator-controlled 3-account self-test completed (PASS)**. Continue invite-only posture for real tiny-cohort testers when available.
 
 For multi-account runs, always sign out between accounts and confirm redirect to `/login`, then verify Settings shows the correct signed-in email for the newly signed-in tester.
 
-Latest recorded 14.18A account result:
+Latest recorded 14.18A result:
 
-- `tlsghktks8.2@gmail.com` (`ownerId=cmp6xp4kt0000kcsxkxvjthne`) completed PASS under Free-plan rehearsal posture after `NEXT_PUBLIC_PROMI_DEFAULT_PLAN=free` redeploy.
-- PASS checks included invite delivery, accept-invite/password setup/login, signed-in email visibility in Settings, X connect/login, create/generate, schedule/upload, history/published lifecycle, owner/drafts isolation, sign-out redirect, logged-out shell/menu hiding, logged-out protected-page behavior, and non-operator `/ops` 404.
-- Keep invite-only posture and operator `/ops` boundary; this is still internal rehearsal evidence, not public launch readiness.
+- **Phase 14.18A operator-controlled 3-account self-test: PASS** (`tlsghktks8.2@gmail.com`, `tlsghktks8.1@gmail.com`, `theory8@naver.com`).
+- All three runs passed invite delivery/onboarding, login, signed-in email visibility, expected Free-plan display, owner/drafts isolation, X connect, create/generate, schedule/upload, history/published lifecycle, sign-out redirect, logged-out shell protection, and non-operator `/ops` `404`.
+- Invite host is canonical (`https://usepromi.app`) and invite-token rotation/revocation path is documented for operator recovery.
+- This remains internal operator-controlled rehearsal evidence only; tiny invite-only external cohort is GO when real testers are available, broader expansion remains PARTIAL GO, and public/live paid launch is not implied.
+
+Phase 14.19 handoff prep:
+
+- Use `docs/PHASE14_19_EXTERNAL_TESTER_HANDOFF.md` for external tester invitation text, tester checklist, feedback capture template, and PASS/PARTIAL/FAIL operator decision flow.
+- Keep invite-only posture and `/ops` operator-only boundary; do not imply public launch readiness.
+- Use `docs/PHASE14_20_EXTERNAL_TESTER_RECRUITMENT_COPY.md` for Korean recruitment copy (post/DM/comment/follow-up templates) when sourcing 1-3 real testers.
 
 ## 6) Scheduler job test
 

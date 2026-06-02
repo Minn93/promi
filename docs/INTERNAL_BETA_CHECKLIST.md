@@ -99,7 +99,9 @@ Then:
 - [ ] **Phase 14.15:** Closed beta GO/NO-GO decision artifact completed — **`docs/PHASE14_15_CLOSED_BETA_READINESS.md`**. Invite-only external testers require explicit decision record + approver.
 - [ ] **Phase 14.16:** First external tester controlled rollout rehearsal completed — **`docs/PHASE14_16_FIRST_TESTER_ROLLOUT.md`** (operator, approver, tester alias/email handling, smoke + rollback evidence).
 - [x] **Phase 14.17:** First tester execution evidence recorded — **`docs/PHASE14_17_FIRST_TESTER_EVIDENCE.md`** (single tester rehearsal PASS).
-- [ ] **Phase 14.18A:** Multi-account self-test rehearsal evidence completed — **`docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`** (operator-controlled 3-5 account matrix + self-test GO gate; not external cohort completion).
+- [x] **Phase 14.18A:** Multi-account self-test rehearsal evidence completed — **`docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`** (operator-controlled 3-account matrix PASS + self-test GO gate; not external cohort completion).
+- [x] **Phase 14.19:** External tester handoff prep materials ready — **`docs/PHASE14_19_EXTERNAL_TESTER_HANDOFF.md`** (invitation template, tester checklist, feedback capture template, operator PASS/PARTIAL/FAIL flow).
+- [x] **Phase 14.20:** External tester recruitment copy pack ready — **`docs/PHASE14_20_EXTERNAL_TESTER_RECRUITMENT_COPY.md`** (Korean post/DM/comment/onboarding/feedback templates, no public-launch wording).
 - [ ] If **`PROMI_BILLING_ENABLED=1`** and Stripe Checkout is intentional for rehearsal: capture **Phase 13.2.5** Stripe **test-mode** Checkout → webhook E2E in **`docs/PHASE13_2_5_STRIPE_E2E_EVIDENCE.md`**, **Phase 13.2.6** Scenario **A** cancel/downgrade in **`docs/PHASE13_2_6_STRIPE_DOWNGRADE_EVIDENCE.md`**, **Phase 13.2.8** manual lock **Scenario B** in **`docs/PHASE13_2_8_MANUAL_OVERRIDE_EVIDENCE.md`** (or obtain written waiver per **`docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`**), and follow **Phase 13.2.7** soak/monitoring in **`docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`** (run **`npm run billing:health`** on a schedule for that environment). Billing remains **OFF** by default; public paid launch stays **NO-GO** until evidence, health checks, and stakeholders sign off.
 - [ ] Before **Stripe live** API keys (`sk_live_*`), live webhook signing secret, or **live** **`STRIPE_PRO_PRICE_ID`** on **Production**: complete **`docs/PHASE13_2_9_LIVE_MODE_READINESS.md`** gates — env separation (**Vercel Production** vs Preview), live webhook URL **`/api/webhooks/billing/stripe`**, commerce/compliance checklist, monitoring/rollback familiarity, controlled live rehearsal plan, and **live-mode GO/NO-GO** approval recorded.
 - [ ] Stripe **test-mode** billing evidence does **not** authorize **live** keys by itself — **13.2.9** planning + rehearsal + sign-off are additional.
@@ -127,7 +129,7 @@ Run after updating X Developer Portal settings to production URLs:
 - [x] Schedule/upload flow: PASS
 - [x] History display: PASS
 - [x] Owner isolation (no other account data visible): PASS
-- [x] **Phase 14.18A multi-account self-test is ready to begin** (start with 3 accounts under invite-only posture).
+- [x] **Phase 14.18A operator-controlled 3-account self-test: PASS** (rehearsal complete; not external cohort completion).
 
 ## Deployment evidence (record for each rollout)
 
@@ -193,9 +195,12 @@ Run this before promoting any release candidate that changes owner-scoped routes
 
 Latest recorded account execution (14.18A):
 
-- [x] `tlsghktks8.2@gmail.com` (`ownerId=cmp6xp4kt0000kcsxkxvjthne`) completed PASS as a Free-plan rehearsal account:
-  invite -> password setup -> login -> signed-in email visibility -> X connect -> create/generate -> schedule/upload -> history/published -> owner/drafts isolation -> logout redirect -> logged-out shell protection -> non-operator `/ops` 404.
-- [ ] Remaining account executions pending (need at least 3 account-level PASS/PARTIAL results before final 14.18A gate decision).
+- [x] `tlsghktks8.2@gmail.com` (`ownerId=cmp6xp4kt0000kcsxkxvjthne`) PASS (Free-plan rehearsal account).
+- [x] `tlsghktks8.1@gmail.com` (`ownerId=cmpb9whhf0000acsxedg0h9i0`) PASS (canonical invite host + token rotation recovery verified).
+- [x] `theory8@naver.com` PASS (final operator-controlled account run).
+- [x] Combined rehearsal result: **PASS** for operator-controlled 3-account self-test.
+- [ ] Real tiny invite-only external tester cohort evidence still pending until real testers are available.
+- [ ] When a real tester is available, execute handoff run using `docs/PHASE14_19_EXTERNAL_TESTER_HANDOFF.md` + `docs/PHASE14_16_FIRST_TESTER_ROLLOUT.md`.
 
 ## Must not ship as public SaaS yet
 

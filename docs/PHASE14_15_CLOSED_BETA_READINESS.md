@@ -11,7 +11,7 @@
 | Mode | Definition | Current posture |
 |------|------------|-----------------|
 | **Internal beta** | Single-owner/internal operator workflows; internal-beta bypass behavior allowed. | **GO** (current supported baseline) |
-| **Multi-account self-test rehearsal** | Operator-controlled 3-5 account pre-beta simulation (not real external cohort). | **GO** |
+| **Multi-account self-test rehearsal** | Operator-controlled 3-5 account pre-beta simulation (not real external cohort). | **PASS (3-account operator-controlled rehearsal complete)** |
 | **Invite-only closed beta** | Real-auth DB users, invite-only onboarding, controlled tester cohort, operator-managed access. | **GO (when real testers are available)** / **PARTIAL GO (broader expansion)** |
 | **Public free beta** | Open external signup/self-serve access without invite gate. | **NO-GO** |
 | **Public paid launch** | Public paid checkout (including live commercial posture). | **NO-GO** |
@@ -38,13 +38,15 @@
 
 ## 3) Invite-only closed beta verdict (GO/PARTIAL/NO-GO)
 
-**Verdict:** **GO for multi-account self-test rehearsal**, **GO for tiny invite-only cohort when real testers are available**, while broader expansion remains **PARTIAL GO** until cohort evidence is complete.
+**Verdict:** **PASS for multi-account self-test rehearsal (operator-controlled 3 accounts)**, **GO for tiny invite-only cohort when real testers are available**, while broader expansion remains **PARTIAL GO** until cohort evidence is complete.
 
 Rationale:
 - Core auth, isolation, route/account gates, and process guardrails are sufficiently hardened for controlled external testers.
 - Critical launch boundaries remain intentionally closed (public signup, public paid launch, Stripe live mode, broad ops access).
 - First external tester rehearsal is now recorded as PASS (`docs/PHASE14_17_FIRST_TESTER_EVIDENCE.md`).
-- Multi-account pre-beta rehearsal template is available (`docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`) and should be used when external testers are unavailable.
+- Multi-account pre-beta rehearsal completed as PASS in operator-controlled mode (`docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`); this is not external cohort completion.
+- External tester handoff materials are prepared (`docs/PHASE14_19_EXTERNAL_TESTER_HANDOFF.md`) for invite-only real tester execution when testers are available.
+- External tester recruitment copy pack is prepared (`docs/PHASE14_20_EXTERNAL_TESTER_RECRUITMENT_COPY.md`) with non-public-launch wording and invite-only boundaries.
 - Some controls remain accepted-risk/deferred for this stage (section 4).
 
 ---
@@ -149,5 +151,7 @@ If incidents occur during closed-beta rollout:
 - `docs/PHASE14_16_FIRST_TESTER_ROLLOUT.md`
 - `docs/PHASE14_17_FIRST_TESTER_EVIDENCE.md`
 - `docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`
+- `docs/PHASE14_19_EXTERNAL_TESTER_HANDOFF.md`
+- `docs/PHASE14_20_EXTERNAL_TESTER_RECRUITMENT_COPY.md`
 - `docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`
 - `docs/PHASE13_2_9_LIVE_MODE_READINESS.md`
