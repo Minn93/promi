@@ -13,6 +13,7 @@ Set these for production internal beta deployments:
 - `PROMI_APP_URL=https://usepromi.app`
 - `NEXT_PUBLIC_APP_URL=https://usepromi.app`
 - `NEXTAUTH_URL=https://usepromi.app`
+- `PROMI_PUBLIC_BETA_SIGNUP=0` (default; keeps invite-only posture)
 - `DATABASE_URL`
 - `CRON_SECRET`
 - `OPENAI_API_KEY`
@@ -221,6 +222,18 @@ Notes:
 - In non-production runtime, mutating actions against a remote DB are blocked by default. To allow intentionally:
   - `PROMI_AUTH_CLI_ALLOW_REMOTE_DB_MUTATIONS=1 npm run auth:user -- --action=invite --email=<email> --confirm`
 
+### Public beta self-serve signup gate (Phase 14.20)
+
+- `PROMI_PUBLIC_BETA_SIGNUP=0` (default):
+  - `GET /signup` returns `404`.
+  - `POST /api/auth/signup` returns `403` (`signup_disabled`).
+  - Invite-only onboarding continues unchanged.
+- `PROMI_PUBLIC_BETA_SIGNUP=1` (limited rollout):
+  - `/signup` form is enabled.
+  - `POST /api/auth/signup` allows account creation with rate limit + password hashing.
+  - New self-serve users get an explicit server entitlement row (`plan_tier=free`, `source=signup`).
+- Emergency rollback is one flag deploy: set `PROMI_PUBLIC_BETA_SIGNUP=0` and redeploy.
+
 ## 5) Post-deploy smoke test
 
 - [ ] App loads and internal-beta banner is visible.
@@ -235,6 +248,10 @@ Notes:
 - [ ] `/upgrade` shows manual approval / server entitlement framing; **self-serve Stripe** appears **only** when billing flags + Stripe env are intentionally enabled (default: hidden).
 - [ ] Opening `/upgrade/checkout` or `/upgrade/success` in production redirects to `/upgrade`; dev-only playground is not linked in production.
 - [ ] Safety block appears if production has `PROMI_INTERNAL_BETA_MODE=0` **and** `PROMI_AUTH_PRODUCT_READY` is not enabled (see **`docs/PHASE14_4_AUTH_USER_MODEL.md`** for closed beta config).
+- [ ] `PROMI_PUBLIC_BETA_SIGNUP=0`: `/signup` returns `404` and `POST /api/auth/signup` returns `403`.
+- [ ] `PROMI_PUBLIC_BETA_SIGNUP=1`: `/signup` creates account successfully, then login at `/login` works.
+- [ ] Signup rate limit works (`429` after repeated attempts in the same window).
+- [ ] New signup owner resolves to Free entitlement (`owner_entitlements.source=signup`, no Pro grant).
 
 Latest recorded production canonical-domain smoke (single-account) PASS:
 

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { AuthSignOutButton } from "@/components/auth-sign-out-button";
 import { LoginForm } from "@/components/login-form";
 import { authOptions } from "@/src/lib/auth/next-auth";
+import { isPublicBetaSignupEnabledServer } from "@/src/lib/internal-beta-mode";
 
 function sanitizeCallbackUrl(raw: string | string[] | undefined): string {
   const picked = Array.isArray(raw) ? raw[0] : raw;
@@ -19,6 +20,7 @@ type LoginPageProps = {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const session = await getServerSession(authOptions);
+  const publicSignupEnabled = isPublicBetaSignupEnabledServer();
   const params = await searchParams;
   const callbackUrl = sanitizeCallbackUrl(params.callbackUrl);
   const signedInEmail =
@@ -52,7 +54,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   return (
     <div className="mx-auto w-full max-w-md space-y-6">
-      <LoginForm callbackUrl={callbackUrl} />
+      <LoginForm callbackUrl={callbackUrl} showSignupLink={publicSignupEnabled} />
     </div>
   );
 }

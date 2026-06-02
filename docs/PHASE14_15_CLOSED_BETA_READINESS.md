@@ -13,7 +13,7 @@
 | **Internal beta** | Single-owner/internal operator workflows; internal-beta bypass behavior allowed. | **GO** (current supported baseline) |
 | **Multi-account self-test rehearsal** | Operator-controlled 3-5 account pre-beta simulation (not real external cohort). | **PASS (3-account operator-controlled rehearsal complete)** |
 | **Invite-only closed beta** | Real-auth DB users, invite-only onboarding, controlled tester cohort, operator-managed access. | **GO (when real testers are available)** / **PARTIAL GO (broader expansion)** |
-| **Public free beta** | Open external signup/self-serve access without invite gate. | **NO-GO** |
+| **Public free beta** | Open external signup/self-serve access without invite gate. | **Flagged readiness only (default OFF via `PROMI_PUBLIC_BETA_SIGNUP=0`)** |
 | **Public paid launch** | Public paid checkout (including live commercial posture). | **NO-GO** |
 
 ---
@@ -97,7 +97,7 @@ If any required evidence fails or is missing, status is **NO-GO** for external t
 
 ## 7) Must remain disabled
 
-- **Public signup** (no open self-serve registration)
+- **Public signup by default** (keep `PROMI_PUBLIC_BETA_SIGNUP=0`; enable only for intentional limited rollout)
 - **Public paid launch** messaging/positioning
 - **Stripe live mode** (live keys/live paid traffic) unless separately approved through `docs/PHASE13_2_9_LIVE_MODE_READINESS.md`
 - **Broad `/ops` access** (must remain operator allowlist/override only)

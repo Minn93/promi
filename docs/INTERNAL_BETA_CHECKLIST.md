@@ -59,6 +59,7 @@ Then:
 - [ ] `PROMI_INTERNAL_BETA_MODE=1` is set on the server runtime.
 - [ ] `NEXT_PUBLIC_PROMI_INTERNAL_BETA_MODE=1` is set for client bundles.
 - [ ] `PROMI_INTERNAL_BETA_OWNER_ID` is set to the intended single-owner id.
+- [ ] `PROMI_PUBLIC_BETA_SIGNUP=0` by default (enable only for intentional limited public-beta rollout).
 - [ ] Canonical production URL vars are aligned: `PROMI_APP_URL=https://usepromi.app`, `NEXT_PUBLIC_APP_URL=https://usepromi.app`, `NEXTAUTH_URL=https://usepromi.app`.
 - [ ] User-facing login URL for beta testers is `https://usepromi.app/login` (do not rely on `/api/auth/signin` in tester instructions).
 - [ ] `www.usepromi.app` is treated as secondary only; canonical links and redirects use `https://usepromi.app`.
@@ -102,6 +103,7 @@ Then:
 - [x] **Phase 14.18A:** Multi-account self-test rehearsal evidence completed — **`docs/PHASE14_18A_MULTI_ACCOUNT_SELF_TEST_EVIDENCE.md`** (operator-controlled 3-account matrix PASS + self-test GO gate; not external cohort completion).
 - [x] **Phase 14.19:** External tester handoff prep materials ready — **`docs/PHASE14_19_EXTERNAL_TESTER_HANDOFF.md`** (invitation template, tester checklist, feedback capture template, operator PASS/PARTIAL/FAIL flow).
 - [x] **Phase 14.20:** External tester recruitment copy pack ready — **`docs/PHASE14_20_EXTERNAL_TESTER_RECRUITMENT_COPY.md`** (Korean post/DM/comment/onboarding/feedback templates, no public-launch wording).
+- [ ] **Phase 14.20-B:** Public beta self-serve signup gate (flagged) — keep `PROMI_PUBLIC_BETA_SIGNUP=0` unless intentionally enabling limited rollout; verify disabled/enabled smoke via **`docs/PHASE14_20_PUBLIC_BETA_SIGNUP_SMOKE.md`**.
 - [ ] If **`PROMI_BILLING_ENABLED=1`** and Stripe Checkout is intentional for rehearsal: capture **Phase 13.2.5** Stripe **test-mode** Checkout → webhook E2E in **`docs/PHASE13_2_5_STRIPE_E2E_EVIDENCE.md`**, **Phase 13.2.6** Scenario **A** cancel/downgrade in **`docs/PHASE13_2_6_STRIPE_DOWNGRADE_EVIDENCE.md`**, **Phase 13.2.8** manual lock **Scenario B** in **`docs/PHASE13_2_8_MANUAL_OVERRIDE_EVIDENCE.md`** (or obtain written waiver per **`docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`**), and follow **Phase 13.2.7** soak/monitoring in **`docs/PHASE13_2_7_BILLING_SOAK_PLAN.md`** (run **`npm run billing:health`** on a schedule for that environment). Billing remains **OFF** by default; public paid launch stays **NO-GO** until evidence, health checks, and stakeholders sign off.
 - [ ] Before **Stripe live** API keys (`sk_live_*`), live webhook signing secret, or **live** **`STRIPE_PRO_PRICE_ID`** on **Production**: complete **`docs/PHASE13_2_9_LIVE_MODE_READINESS.md`** gates — env separation (**Vercel Production** vs Preview), live webhook URL **`/api/webhooks/billing/stripe`**, commerce/compliance checklist, monitoring/rollback familiarity, controlled live rehearsal plan, and **live-mode GO/NO-GO** approval recorded.
 - [ ] Stripe **test-mode** billing evidence does **not** authorize **live** keys by itself — **13.2.9** planning + rehearsal + sign-off are additional.
@@ -201,6 +203,14 @@ Latest recorded account execution (14.18A):
 - [x] Combined rehearsal result: **PASS** for operator-controlled 3-account self-test.
 - [ ] Real tiny invite-only external tester cohort evidence still pending until real testers are available.
 - [ ] When a real tester is available, execute handoff run using `docs/PHASE14_19_EXTERNAL_TESTER_HANDOFF.md` + `docs/PHASE14_16_FIRST_TESTER_ROLLOUT.md`.
+
+## Public beta signup smoke (Phase 14.20 optional gate)
+
+- [ ] **Disabled mode (`PROMI_PUBLIC_BETA_SIGNUP=0`)**: `GET /signup` -> `404`, `POST /api/auth/signup` -> `403 signup_disabled`.
+- [ ] **Enabled mode (`PROMI_PUBLIC_BETA_SIGNUP=1`)**: landing CTA shows `Start public beta`, login page shows `Try the beta`, signup creates account, and new account can sign in.
+- [ ] Repeated signup attempts from same identity/IP hit `429 too_many_requests` within window.
+- [ ] New self-serve user resolves to Free (no manual/provider Pro lock created by signup).
+- [ ] Rollback validated: set `PROMI_PUBLIC_BETA_SIGNUP=0` and redeploy to return invite-only posture.
 
 ## Must not ship as public SaaS yet
 

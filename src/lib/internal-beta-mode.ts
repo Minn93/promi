@@ -24,6 +24,11 @@ export function isAuthProductReadyServer(): boolean {
   return parseFlag(process.env.PROMI_AUTH_PRODUCT_READY, false);
 }
 
+/** Public beta self-serve signup gate (default off). */
+export function isPublicBetaSignupEnabledServer(): boolean {
+  return parseFlag(process.env.PROMI_PUBLIC_BETA_SIGNUP, false);
+}
+
 /**
  * Production app shell blocked: not internal beta and auth MVP flag not enabled.
  * Renders layout safety screen until PROMI_INTERNAL_BETA_MODE=1 or PROMI_AUTH_PRODUCT_READY=1.

@@ -7,6 +7,7 @@ import { isInternalBetaModeServer } from "@/src/lib/internal-beta-mode";
 
 /** Sliding-window limits (Upstash-compatible window strings). See docs/PHASE14_10_RATE_LIMITS.md */
 export const RATE_LIMITS = {
+  signup: { max: 5, window: "1 h" as const },
   forgotPassword: { max: 5, window: "1 h" as const },
   resetPassword: { max: 10, window: "1 h" as const },
   acceptInvite: { max: 10, window: "1 h" as const },

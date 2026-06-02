@@ -7,9 +7,10 @@ import { useState } from "react";
 
 type LoginFormProps = {
   callbackUrl: string;
+  showSignupLink: boolean;
 };
 
-export function LoginForm({ callbackUrl }: LoginFormProps) {
+export function LoginForm({ callbackUrl, showSignupLink }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,7 +46,11 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
     <form onSubmit={onSubmit} className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Sign in to Promi</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Promi is currently available by invite only.</p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          {showSignupLink
+            ? "Promi is currently in public beta (limited)."
+            : "Promi is currently available by invite only."}
+        </p>
       </div>
 
       <div>
@@ -105,6 +110,14 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
             Forgot password
           </Link>
         </p>
+        {showSignupLink ? (
+          <p>
+            New here?{" "}
+            <Link href="/signup" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100">
+              Try the beta
+            </Link>
+          </p>
+        ) : null}
       </div>
     </form>
   );

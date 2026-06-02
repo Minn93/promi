@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/src/lib/auth/next-auth";
+import { isPublicBetaSignupEnabledServer } from "@/src/lib/internal-beta-mode";
 
 export default async function HomePage() {
   const session = await getServerSession(authOptions);
   const signedIn = typeof session?.user?.id === "string" && session.user.id.trim().length > 0;
+  const publicSignupEnabled = isPublicBetaSignupEnabledServer();
   const inviteEmail = process.env.PROMI_UPGRADE_REQUEST_EMAIL?.trim();
   const inviteMailto = inviteEmail
     ? `mailto:${inviteEmail}?subject=${encodeURIComponent("Promi beta invite request")}`
@@ -17,7 +19,7 @@ export default async function HomePage() {
         className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 md:p-10"
       >
         <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          Invite-only closed beta
+          {publicSignupEnabled ? "Public beta (limited)" : "Invite-only closed beta"}
         </p>
         <h1
           id="landing-hero-heading"
@@ -31,12 +33,21 @@ export default async function HomePage() {
           promotion work.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <a
-            href={inviteMailto ?? "#request-invite"}
-            className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            Request invite
-          </a>
+          {publicSignupEnabled ? (
+            <Link
+              href="/signup"
+              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Start public beta
+            </Link>
+          ) : (
+            <a
+              href={inviteMailto ?? "#request-invite"}
+              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Request invite
+            </a>
+          )}
           {signedIn ? (
             <Link
               href="/create"
@@ -108,14 +119,18 @@ export default async function HomePage() {
           Current beta status
         </h2>
         <ul className="mt-3 space-y-2 text-sm text-amber-900 dark:text-amber-100">
-          <li>Invite-only closed beta access</li>
+          <li>{publicSignupEnabled ? "Public beta access is currently enabled" : "Invite-only closed beta access"}</li>
           <li>X/Twitter-focused real publish flow</li>
           <li>Billing is not a live paid launch</li>
           <li>Non-X real publish parity is still partial</li>
           <li>Product direction is feedback-driven during beta</li>
         </ul>
         <p className="mt-4 text-sm text-amber-900 dark:text-amber-100">
-          {inviteMailto ? (
+          {publicSignupEnabled ? (
+            <>
+              Public beta is open in a limited rollout. If signup is later paused, invite-only access will continue.
+            </>
+          ) : inviteMailto ? (
             <>
               To request access, email{" "}
               <a className="font-medium underline" href={inviteMailto}>
