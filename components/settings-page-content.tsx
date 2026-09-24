@@ -30,7 +30,8 @@ const DEFAULT_PREFS: Preferences = {
   defaultPlatform: "instagram",
 };
 
-export function SettingsPageContent({ ownerId, signedInEmail, planTier }: SettingsPageContentProps) {
+export function SettingsPageContent({ ownerId: _ownerId, signedInEmail, planTier }: SettingsPageContentProps) {
+  void _ownerId;
   const [effectivePlanTier] = useState<PlanTier>(() => {
     if (typeof window === "undefined") return planTier;
     return getClientPlanTier();
@@ -122,16 +123,16 @@ export function SettingsPageContent({ ownerId, signedInEmail, planTier }: Settin
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Account overview</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
           Signed in as:{" "}
-          <span className="font-medium text-zinc-800 dark:text-zinc-100">{signedInEmail ?? ownerId}</span>
-        </p>
-        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Owner ID: <span className="font-medium text-zinc-700 dark:text-zinc-300">{ownerId}</span>
+          <span className="font-medium text-zinc-800 dark:text-zinc-100">{signedInEmail ?? "your account"}</span>
         </p>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
           Current plan: <span className="font-medium text-zinc-800 dark:text-zinc-100">{plan.label}</span>
         </p>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Billing status: {billingStatus}
+          Billing is not a live paid launch yet
+          {billingStatus === "pro" || billingStatus === "pro_pending"
+            ? " · local preview status may differ from your real plan."
+            : "."}
         </p>
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
           {usageRows.map((row) => (
@@ -163,7 +164,7 @@ export function SettingsPageContent({ ownerId, signedInEmail, planTier }: Settin
       <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Plan and Pro access</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Free starts small. Higher limits come from Pro enrollment during closed beta via manual approval (no in-app checkout).
+          Free starts with smaller limits. Pro unlocks higher limits during beta after a short access request.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {(["free", "pro"] as PlanTier[]).map((tier) => {
@@ -186,7 +187,7 @@ export function SettingsPageContent({ ownerId, signedInEmail, planTier }: Settin
             href="/upgrade"
             className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Request Pro access
+            Upgrade
           </Link>
         </div>
       </section>

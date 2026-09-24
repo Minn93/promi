@@ -4,22 +4,22 @@ overview: Safest minimal path to enable a small public open beta with reversible
 todos:
   - id: add-signup-flag
     content: Add server flag helper for PROMI_PUBLIC_BETA_SIGNUP and document semantics
-    status: pending
+    status: completed
   - id: build-signup-route
     content: Implement POST /api/auth/signup with validation, rate limit, and safe user creation
-    status: pending
+    status: completed
   - id: add-signup-ui
     content: Create /signup page + form and wire CTA visibility on / and /login when flag enabled
-    status: pending
+    status: completed
   - id: keep-boundaries
     content: Verify proxy protection and /ops boundary remain unchanged
-    status: pending
+    status: completed
   - id: update-docs
     content: Update runbook/checklist/readiness docs with public beta signup operation and rollback
-    status: pending
+    status: completed
   - id: verify-and-smoke
     content: Run lint/build/preflight/billing-health and execute manual auth/signup protection smoke
-    status: pending
+    status: completed
 isProject: false
 ---
 

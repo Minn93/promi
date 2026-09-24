@@ -838,6 +838,7 @@ export function CreatePromotionForm({
   };
 
   const handleRemoveTemplate = (id: string) => {
+    if (!window.confirm("Remove this template? This cannot be undone.")) return;
     try {
       removeReusablePostTemplate(id);
       refreshTemplates();
@@ -875,7 +876,7 @@ export function CreatePromotionForm({
           <Link href="/products" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
             Products
           </Link>{" "}
-          and click <span className="font-medium">Promote</span> again.
+          and click <span className="font-medium">Create post</span> again.
         </p>
       </div>
     );
@@ -898,7 +899,7 @@ export function CreatePromotionForm({
             <Link href="/products" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
               Products
             </Link>{" "}
-            and click <span className="font-medium">Promote</span> on a product to continue.
+            and click <span className="font-medium">Create post</span> on a product to continue.
             {" "}You can also start from suggested products on the{" "}
             <Link href="/" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
               Home page
@@ -985,7 +986,7 @@ export function CreatePromotionForm({
             <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
               <p>Template limit reached on {plan.label}. Remove a template or upgrade to Pro.</p>
               <Link href="/upgrade" className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-                Upgrade to Pro
+                Upgrade
               </Link>
             </div>
           ) : null}
@@ -996,7 +997,7 @@ export function CreatePromotionForm({
               </p>
               {templateError.toLowerCase().includes("limit") ? (
                 <Link href="/upgrade" className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-                  Upgrade to Pro
+                  Upgrade
                 </Link>
               ) : null}
             </div>
@@ -1138,7 +1139,7 @@ export function CreatePromotionForm({
                 Generating...
               </>
             ) : (
-              "Generate Content"
+              "Generate post"
             )}
           </button>
           <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
@@ -1250,7 +1251,7 @@ export function CreatePromotionForm({
             <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
               <p>You reached your scheduling limit on {plan.label}. Upgrade to continue scheduling.</p>
               <Link href="/upgrade" className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-                Upgrade to Pro
+                Upgrade
               </Link>
             </div>
           ) : null}
@@ -1379,7 +1380,7 @@ export function CreatePromotionForm({
                   Saving...
                 </>
               ) : (
-                "Save as Draft"
+                "Save draft"
               )}
             </button>
             <button
@@ -1395,12 +1396,12 @@ export function CreatePromotionForm({
                   Scheduling...
                 </>
               ) : (
-                "Schedule Post"
+                "Schedule post"
               )}
             </button>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Save as Draft keeps this copy and optional date/time on this device. Schedule Post sends it to the server queue.
+            Save draft keeps this copy and optional date/time on this device. Schedule post sends it to the publishing queue.
           </p>
           {scheduleError ? (
             <div className="space-y-1">

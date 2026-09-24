@@ -5,7 +5,6 @@ import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { fetchOwnerEntitlementDisplay } from "@/src/lib/entitlements/server";
 import { isStripeHostedCheckoutOfferedServer } from "@/src/lib/billing/billing-env";
-import { isInternalBetaModeServer } from "@/src/lib/internal-beta-mode";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +22,6 @@ export default async function UpgradePage({ searchParams }: UpgradePageProps) {
   const checkoutReturn =
     checkoutParam === "success" || checkoutParam === "cancelled" ? checkoutParam : null;
 
-  const internalBetaMode = isInternalBetaModeServer();
   const offerStripeHostedCheckout = isStripeHostedCheckoutOfferedServer();
   const ownerId = await getCurrentOwnerId();
   const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
@@ -31,8 +29,8 @@ export default async function UpgradePage({ searchParams }: UpgradePageProps) {
     return (
       <>
         <PageHeader
-          title={internalBetaMode ? "Pro access (internal beta)" : "Pro access (closed beta)"}
-          description="Review account and plan status."
+          title="Upgrade"
+          description="Review your plan and Pro access options."
         />
         <AccountUnavailableState
           title="Account unavailable"
@@ -51,15 +49,11 @@ export default async function UpgradePage({ searchParams }: UpgradePageProps) {
   return (
     <>
       <PageHeader
-        title={internalBetaMode ? "Pro access (internal beta)" : "Pro access (closed beta)"}
+        title="Upgrade"
         description={
-          internalBetaMode
-            ? offerStripeHostedCheckout
-              ? "Manual approval remains available. Hosted Stripe Checkout may be enabled by operators — Pro activates only after verified webhooks update entitlements; return URLs are not proof of access."
-              : "Manual approval requests only — no checkout or payments in-app. Operators grant Pro with the entitlement CLI when approved."
-            : offerStripeHostedCheckout
-              ? "Request Pro through manual operator approval or continue to hosted Stripe Checkout when billing is configured. Enforcement is server-side; successful return to this page does not grant Pro."
-              : "Request Pro limits through manual operator approval — there is no self-serve payment or checkout yet."
+          offerStripeHostedCheckout
+            ? "Compare Free and Pro limits. Request Pro access, or continue to checkout when it is available. Returning from checkout alone does not grant Pro yet."
+            : "Compare Free and Pro limits. During beta, Pro access is granted after a short request review."
         }
       />
       <UpgradePricingFlow

@@ -87,9 +87,9 @@ export function UpgradePricingFlow({
       [
         "Hello,",
         "",
-        "I'm requesting Promi Pro access during the closed-beta period (manual approval, no payment in-app).",
+        "I'm requesting Promi Pro access during beta.",
         "",
-        `Owner ID: ${ownerId}`,
+        `Account reference: ${ownerId}`,
         "",
         "Thank you.",
       ].join("\n"),
@@ -108,9 +108,9 @@ export function UpgradePricingFlow({
     setCopyNotice(null);
     try {
       await navigator.clipboard.writeText(requestBody);
-      setCopyNotice("Request text copied.");
+      setCopyNotice("Request text copied. Paste it into an email to Promi support.");
     } catch {
-      setCopyNotice("Could not copy automatically. Copy the Owner ID manually.");
+      setCopyNotice("Could not copy automatically. Please try again or email Promi support.");
     }
   }, [requestBody]);
 
@@ -127,82 +127,63 @@ export function UpgradePricingFlow({
         const code = data.error ?? "checkout_failed";
         setStripeErr(
           code === "billing_disabled"
-            ? "Hosted checkout is not enabled for this deployment."
+            ? "Checkout is not available right now. You can still request Pro access by email."
             : code === "billing_misconfigured"
-              ? "Billing env is incomplete (Stripe keys, price id, or canonical app URL)."
+              ? "Checkout is temporarily unavailable. Please try again later or request Pro access by email."
               : code === "authentication_required"
                 ? "Sign in to continue to checkout."
-                : "Could not start checkout — try manual approval or try again.",
+                : "Could not start checkout. Please try again or request Pro access by email.",
         );
         return;
       }
       if (!data.url) {
-        setStripeErr("Checkout did not return a redirect URL.");
+        setStripeErr("Checkout could not continue. Please try again.");
         return;
       }
       window.location.assign(data.url);
     } catch {
-      setStripeErr("Network error starting checkout.");
+      setStripeErr("Network error starting checkout. Please try again.");
     } finally {
       setStripeBusy(false);
     }
   }, []);
 
-  const serverStatusPanel = (
+  const currentPlanPanel = (
     <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        Server entitlement (authority)
+        Current plan & limits
       </h2>
       <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-        Effective plan limits:{" "}
+        Your plan:{" "}
         <span className="font-medium text-zinc-900 dark:text-zinc-100">{resolverLabel}</span>
       </p>
       {manualProGranted ? (
         <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
-          Pro access is active via manual approval (recorded server-side).
+          Pro access is active.
         </p>
       ) : null}
       {providerProGranted ? (
         <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
-          Pro access is active via Stripe subscription (synced from billing webhooks).
+          Pro access is active through your subscription.
         </p>
       ) : null}
       {resolvedPlanTier === "pro" && !manualProGranted && !providerProGranted ? (
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Pro limits apply from workspace defaults — not via a simulated app purchase. Operators use the entitlement CLI when
-          manual approval is granted.
+          Pro limits are currently applied to your account.
         </p>
       ) : null}
       {resolvedPlanTier === "free" ? (
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          {offerStripeHostedCheckout ? (
-            <>
-              Hosted Stripe Checkout may be available below when billing is explicitly enabled server-side — Pro still comes from webhook-backed entitlements after checkout, not from this page’s query string.
-            </>
-          ) : (
-            <>Closed beta uses manual approval by default — self-serve checkout stays off until operators enable billing.</>
-          )}
+          {offerStripeHostedCheckout
+            ? "You are on Free. You can request Pro access or continue to checkout when it is available."
+            : "You are on Free. Request Pro access if you need higher limits during beta."}
         </p>
       ) : null}
-
-      <p className="mt-2 text-xs font-mono text-zinc-600 dark:text-zinc-300">
-        ownerId: <span className="select-all">{ownerId}</span>
-      </p>
-
-      {entitlement ? (
-        <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-400">
-          <p>
-            Stored row · plan <span className="font-medium text-zinc-800 dark:text-zinc-100">{entitlement.planTier}</span>, status{" "}
-            <span className="font-medium text-zinc-800 dark:text-zinc-100">{entitlement.status}</span>, source{" "}
-            <span className="font-medium text-zinc-800 dark:text-zinc-100">{entitlement.source}</span>
-          </p>
-          {entitlementExpired(entitlement.expiresAtIso) ? (
-            <p className="mt-1 font-medium text-amber-700 dark:text-amber-300">Stored expiry passed — resolver treats entitlement as inactive.</p>
-          ) : null}
-        </div>
-      ) : (
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">No row in owner_entitlements for this owner — resolver falls back to environment defaults.</p>
-      )}
+      {entitlementExpired(entitlement?.expiresAtIso ?? null) ? (
+        <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+          Your previous Pro access has expired. Request Pro again if you need higher limits.
+        </p>
+      ) : null}
     </section>
   );
 
@@ -210,11 +191,7 @@ export function UpgradePricingFlow({
     ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-            {manualProGranted
-              ? "Pro — manual approval"
-              : providerProGranted
-                ? "Pro — Stripe subscription"
-                : "Pro — workspace defaults"}
+            Pro active
           </span>
           <Link
             href="/settings"
@@ -232,7 +209,7 @@ export function UpgradePricingFlow({
                 href={mailtoHref}
                 className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                Request Pro access (email)
+                Upgrade
               </a>
             ) : (
               <button
@@ -240,7 +217,7 @@ export function UpgradePricingFlow({
                 onClick={() => void handleCopyRequest()}
                 className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                Copy Pro access request
+                Upgrade
               </button>
             )}
             {offerStripeHostedCheckout ? (
@@ -250,14 +227,13 @@ export function UpgradePricingFlow({
                 onClick={() => void handleStripeCheckout()}
                 className="inline-flex items-center justify-center rounded-md border border-emerald-700 bg-white px-3 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-600 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
               >
-                {stripeBusy ? "Starting checkout…" : "Continue with Stripe Checkout"}
+                {stripeBusy ? "Starting checkout…" : "Continue to checkout"}
               </button>
             ) : null}
           </div>
           {!mailtoHref ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Set <span className="font-mono">PROMI_UPGRADE_REQUEST_EMAIL</span> so the primary button opens an email draft.
-              Otherwise copy includes your owner ID so an operator can run <span className="font-mono">npm run entitlement:grant</span>.
+              Copy the request text, then email Promi support to ask for Pro access.
             </p>
           ) : null}
           {copyNotice ? <p className="text-xs text-zinc-600 dark:text-zinc-400">{copyNotice}</p> : null}
@@ -266,46 +242,41 @@ export function UpgradePricingFlow({
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
-            Back to dashboard
+            Back to home
           </Link>
         </div>
       );
 
   return (
     <div className="space-y-5">
-      {serverStatusPanel}
+      {currentPlanPanel}
 
       {checkoutReturn === "success" ? (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-50">
-          You returned here after Stripe. <strong>That is not proof of Pro.</strong> Access updates when Stripe webhooks
-          reconcile entitlements server-side — wait a moment and refresh, or ask an operator to verify webhook delivery.
+          Thanks for returning from checkout. Pro access may take a moment to appear — refresh this page shortly.
+          Returning here does not by itself mean Pro is active yet.
         </p>
       ) : null}
       {checkoutReturn === "cancelled" ? (
         <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300">
-          Checkout was cancelled — no Stripe subscription was completed from this attempt.
+          Checkout was cancelled. No changes were made to your plan.
         </p>
       ) : null}
 
       {internalBetaMode ? (
         <p className="text-xs text-amber-800 dark:text-amber-100/90">
-          Internal beta: public paid SaaS stays NO-GO until checkout + webhook E2E rehearsal is evidenced.
-          {offerStripeHostedCheckout ? " Hosted Checkout may appear for Stripe test rehearsals; manual approval remains documented." : " Operators typically grant Pro via database tooling when approved."}
+          Promi is in beta. Paid billing is limited, and Pro access may require approval.
         </p>
       ) : null}
 
-      {productionEnvironment ? (
+      {productionEnvironment && !offerStripeHostedCheckout ? (
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          {offerStripeHostedCheckout ? (
-            <>
-              Hosted checkout may redirect to Stripe when billing is intentionally enabled — your tier still comes only from{" "}
-              <span className="font-medium">owner_entitlements</span> after webhooks process; do not rely on browser return URLs.
-            </>
-          ) : (
-            <>
-              Self-serve hosted checkout stays hidden until billing is explicitly enabled server-side — effective plan follows server entitlements, not billing UI hints.
-            </>
-          )}
+          Self-serve checkout is not available yet. You can still request Pro access during beta.
+        </p>
+      ) : null}
+      {productionEnvironment && offerStripeHostedCheckout ? (
+        <p className="text-xs text-zinc-600 dark:text-zinc-400">
+          Checkout may open in Stripe. Your plan updates after payment is confirmed — returning to this page alone does not grant Pro.
         </p>
       ) : null}
 
@@ -334,28 +305,27 @@ export function UpgradePricingFlow({
       </section>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Need Pro limits?</h3>
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Need higher limits?</h3>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Pro expands limits and analytics depth.
+          Pro expands connected accounts, scheduled posts, templates, and analytics depth.
           {offerStripeHostedCheckout
-            ? " Use manual approval (email/copy) unless your operators have enabled Stripe test/live checkout for this deployment — Stripe paths still activate Pro only via webhook‑driven entitlement updates."
-            : " Closed beta enrollment stays approval-based — submit a request and an operator will attach Pro to your owner ID if approved."}
+            ? " Request Pro access, or continue to checkout when available."
+            : " During beta, Pro access is granted after a short request review."}
         </p>
         <div className="mt-4">{accessCtas}</div>
       </section>
 
       {showDevMockPlayground ? (
         <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/40 p-4 text-xs dark:border-amber-800 dark:bg-amber-950/20">
-          <p className="font-medium text-amber-900 dark:text-amber-200">Developer-only: local billing preview</p>
+          <p className="font-medium text-amber-900 dark:text-amber-200">Local preview only</p>
           <p className="mt-1 text-amber-800/90 dark:text-amber-200/85">
-            The following page toggles legacy <span className="font-semibold">localStorage</span> state only — it{" "}
-            <span className="font-semibold">does not</span> grant Pro on the server and is not linked in production builds.
+            This preview does not change your real plan. It is available in local development only.
           </p>
           <Link
             href="/upgrade/checkout"
             className="mt-2 inline-flex text-xs font-medium text-amber-900 underline underline-offset-2 dark:text-amber-200"
           >
-            Open dev mock playground
+            Open local preview
           </Link>
         </section>
       ) : null}

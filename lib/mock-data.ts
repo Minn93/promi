@@ -4,7 +4,7 @@ import type { NavItem, Product } from "./types";
 export const dashboardNavItems: NavItem[] = [
   { label: "Home", href: "/" },
   { label: "Products", href: "/products" },
-  { label: "Create Promotion", href: "/create" },
+  { label: "Create post", href: "/create" },
   { label: "Drafts", href: "/drafts" },
   { label: "Scheduled", href: "/scheduled" },
   { label: "History", href: "/history" },
@@ -14,8 +14,8 @@ export const dashboardNavItems: NavItem[] = [
 ];
 
 /**
- * Sample catalog for a beginner Shopify-style seller (handmade / small batch).
- * Replace with API data when you connect a real store.
+ * Sample catalog used so users can explore the Promi create/schedule workflow.
+ * Replace with API data when a real store connection is available.
  */
 export const mockProducts: Product[] = [
   {

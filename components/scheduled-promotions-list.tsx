@@ -66,6 +66,7 @@ export function ScheduledPromotionsList({
   }, [refresh]);
 
   const handleRemove = (id: string) => {
+    if (!window.confirm("Remove this draft? This cannot be undone.")) return;
     setRemoveError(null);
     try {
       removePromotionById(id);

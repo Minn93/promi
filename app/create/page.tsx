@@ -32,7 +32,7 @@ export default async function CreatePromotionPage({ searchParams }: CreatePagePr
   return (
     <>
       <PageHeader
-        title="Create promotion"
+        title="Create post"
         description="Tune channels, tone, and angle—then generate copy for your posts."
       />
       <CreatePromotionForm

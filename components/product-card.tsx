@@ -24,7 +24,7 @@ export type ProductCardProps = {
   product: Product;
   /** Extra classes on the root card (e.g. `h-full`). */
   className?: string;
-  /** Override Promote target; defaults to `/create?productId=…`. */
+  /** Override Create post target; defaults to `/create?productId=…`. */
   promoteHref?: string;
 };
 
@@ -81,7 +81,7 @@ export function ProductCard({ product, className, promoteHref }: ProductCardProp
             href={href}
             className="promi-press flex w-full items-center justify-center rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:bg-zinc-800 hover:shadow-sm hover:shadow-zinc-900/25 active:scale-[0.98] motion-safe:active:translate-y-px dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:shadow-zinc-900/10 dark:active:bg-zinc-300"
           >
-            Promote
+            Create post
           </Link>
         </div>
       </div>
