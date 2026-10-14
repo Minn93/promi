@@ -11,7 +11,7 @@ const FEATURE_LABELS: Record<string, string> = {
   advancedAnalytics: "Advanced analytics ranges and insights",
   multiAccount: "Multi-account operations",
   templateReuse: "Reusable template workflows",
-  advancedOperations: "Advanced operational controls",
+  advancedOperations: "Extra publishing controls",
 };
 
 function entitlementExpired(expiresAtIso: string | null): boolean {
@@ -89,7 +89,7 @@ export function UpgradePricingFlow({
         "",
         "I'm requesting Promi Pro access during beta.",
         "",
-        `Account reference: ${ownerId}`,
+        `Support reference: ${ownerId}`,
         "",
         "Thank you.",
       ].join("\n"),

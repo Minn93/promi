@@ -26,6 +26,7 @@ Optional, feature-specific:
 - `X_OAUTH_REDIRECT_URI`
 - `X_REAL_PUBLISHING`
 - `X_API_BASE_URL`
+- `PROMI_MEDIA_BLOB_HOST` + Blob credentials (`BLOB_STORE_ID` from a connected store, or `BLOB_READ_WRITE_TOKEN`) — required for image uploads; without them uploads return `503` and posts without images still work. Hobby-plan limits and setup: **`docs/PHASE15_2C_IMAGE_STORAGE.md`**.
 
 Notes:
 
@@ -243,7 +244,8 @@ Notes:
 - [ ] Connect/reconnect X works (if X env is configured).
 - [ ] Schedule post works.
 - [ ] Scheduled queue shows the item.
-- [ ] Trigger scheduler job and verify due item is processed.
+- [ ] **Scheduler cost-safety:** `vercel.json` has **no** 1-minute cron (`* * * * *`); automatic polling is off unless deliberately re-enabled at 15-minute cadence (see §6).
+- [ ] Trigger scheduler job **manually** and verify due item is processed.
 - [ ] History shows result.
 - [ ] `/upgrade` shows manual approval / server entitlement framing; **self-serve Stripe** appears **only** when billing flags + Stripe env are intentionally enabled (default: hidden).
 - [ ] Opening `/upgrade/checkout` or `/upgrade/success` in production redirects to `/upgrade`; dev-only playground is not linked in production.
@@ -281,12 +283,46 @@ Phase 14.19 handoff prep:
 
 ## 6) Scheduler job test
 
+### Cost-safety (current)
+
+Automatic Vercel Cron polling is **disabled** so Neon is not woken on a timer while Promi is in active development / low traffic. `vercel.json` must not contain an active `crons` entry (especially not `* * * * *`).
+
+Use **manual** job invocation for publish rehearsal. Keep Cron Jobs disabled in the Vercel project UI until a deliberate beta re-enable.
+
+**Never restore `* * * * *` without a deliberate product decision.**
+
+### Manual trigger
+
 Production-style call:
 
 - `POST /api/jobs/process-due-scheduled-posts?limit=20`
 - Header: `Authorization: Bearer <CRON_SECRET>`
 
 Verify job response and Scheduled/History updates.
+
+Local notes: see `docs/DEVELOPMENT.md` (`ALLOW_UNAUTH_SCHEDULER_DEV`, `DISABLE_AUTO_SCHEDULER_DEV`, `?manual=1`).
+
+### Future beta: re-enable at 15-minute cadence
+
+When unattended publishing is required again:
+
+1. Confirm Neon compute quota is healthy.
+2. Set `vercel.json` to:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/jobs/process-due-scheduled-posts",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
+```
+
+3. Redeploy and confirm Vercel Cron Jobs shows **every 15 minutes** (not every minute).
+4. Smoke: schedule a due post → wait ≤15 minutes → confirm Scheduled/History update.
+5. Update the user-facing timing copy in the same change (`lib/publishing-timing-copy.ts`, `lib/post-status-copy.ts`, Scheduled/History page descriptions). Today it says posts are sent “when Promi's publishing job runs, which can be later than the scheduled time.” With 15-minute polling it can say “around the scheduled time,” never exact-minute publishing.
 
 ## 7) OAuth reconnect check
 

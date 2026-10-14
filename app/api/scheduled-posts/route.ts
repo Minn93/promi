@@ -5,6 +5,7 @@ import type { InternalPostStatus } from "@/lib/post-status";
 import { prisma } from "@/lib/prisma";
 import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { checkScheduledImageUrlForOwner } from "@/src/lib/media/image-storage";
 import { getPlanConfig, isLimitReached } from "@/src/lib/plans/config";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
@@ -157,6 +158,10 @@ export async function POST(request: Request) {
   const ownerId = await getCurrentOwnerId();
   const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
   if (policyGate) return accountGateApiError(policyGate);
+  const imageCheck = checkScheduledImageUrlForOwner(body.imageUrl, ownerId);
+  if (!imageCheck.ok) {
+    return apiError({ status: 400, code: imageCheck.code, message: imageCheck.message });
+  }
   const planTier = await getPlanTierForOwner(ownerId);
   const plan = getPlanConfig(planTier);
   const activeScheduledCount = await prisma.scheduledPost.count({
@@ -198,7 +203,7 @@ export async function POST(request: Request) {
             ownerId,
             productId: body.productId,
             productName: body.productName,
-            imageUrl: body.imageUrl,
+            imageUrl: imageCheck.imageUrl,
             channels: body.channels as Prisma.InputJsonValue,
             contentPayload: body.contentPayload as Prisma.InputJsonValue,
             scheduledAt,

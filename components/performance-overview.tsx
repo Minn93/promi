@@ -60,7 +60,7 @@ function channelCounts(promotions: Promotion[]) {
 /** 2–3 short tips based on saved `Promotion` rows. */
 function nextStepSuggestions(promotions: Promotion[]): string[] {
   if (promotions.length === 0) {
-    return ["Save your first promotion on the Create page to see helpful tips here."];
+    return ["Create your first post to see helpful tips here."];
   }
 
   const drafts = promotions.filter((p) => p.status === "draft").length;
@@ -71,11 +71,11 @@ function nextStepSuggestions(promotions: Promotion[]): string[] {
   const tips: string[] = [];
 
   if (scheduled === 0) {
-    tips.push("You have not scheduled any promotions yet.");
+    tips.push("You have not scheduled any posts from this device yet.");
   }
   if (drafts >= 1) {
     tips.push(
-      `You have ${drafts} draft promotion${drafts === 1 ? "" : "s"} ready to schedule.`,
+      `You have ${drafts} draft${drafts === 1 ? "" : "s"} on this device ready to schedule.`,
     );
   }
   if (top !== "—") {
@@ -158,7 +158,7 @@ export function PerformanceOverview() {
   if (!mounted) {
     return (
       <p className="text-sm text-zinc-500 dark:text-zinc-400" role="status" aria-live="polite">
-        Loading...
+        Loading…
       </p>
     );
   }
@@ -172,11 +172,28 @@ export function PerformanceOverview() {
           </p>
         ) : null}
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          No promotion data yet. Go to{" "}
+          No saved posts on this device yet. Open{" "}
           <Link href="/products" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
             Products
           </Link>{" "}
-          and create a promotion, then save it as a draft or schedule it.
+          and create a post, then save a draft.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <Link
+            href="/create"
+            className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            Create post
+          </Link>
+          <Link
+            href="/analytics"
+            className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Open Analytics
+          </Link>
+        </div>
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          For published reach and engagement, use Analytics — not this page.
         </p>
       </div>
     );
@@ -184,6 +201,13 @@ export function PerformanceOverview() {
 
   return (
     <div className="space-y-10">
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Counts below come from drafts and promotions saved in this browser. For published reach and engagement, open{" "}
+        <Link href="/analytics" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
+          Analytics
+        </Link>
+        .
+      </p>
       <section aria-labelledby="performance-overview-heading" className="space-y-3">
         <h2 id="performance-overview-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Overview</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -266,11 +290,15 @@ export function PerformanceOverview() {
             ))}
           </ul>
           <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-            Based on promotions in this browser. Open{" "}
+            Based on posts saved in this browser. Open{" "}
+            <Link href="/analytics" className="font-medium underline underline-offset-2">
+              Analytics
+            </Link>{" "}
+            for published results, or{" "}
             <Link href="/scheduled" className="font-medium underline underline-offset-2">
-              Scheduled queue
-            </Link>
-            .
+              Scheduled
+            </Link>{" "}
+            for the publishing queue.
           </p>
         </div>
       </section>

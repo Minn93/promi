@@ -4,9 +4,19 @@ import { PageHeader } from "@/components/page-header";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 
-export default async function SettingsAccountsPage() {
+function firstParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+export default async function SettingsAccountsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const ownerId = await getCurrentOwnerId();
   const policyGate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: false });
+  const params = await searchParams;
 
   return (
     <>
@@ -20,7 +30,11 @@ export default async function SettingsAccountsPage() {
           description="Connected account details are unavailable for this account."
         />
       ) : (
-        <ConnectedAccountsPanel />
+        <ConnectedAccountsPanel
+          oauthConnected={firstParam(params.connected)}
+          oauthError={firstParam(params.oauth_error)}
+          oauthMock={firstParam(params.mock) === "1"}
+        />
       )}
     </>
   );

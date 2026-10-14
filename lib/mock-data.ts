@@ -89,3 +89,9 @@ export const mockProducts: Product[] = [
 export function getProductById(id: string): Product | undefined {
   return mockProducts.find((p) => p.id === id);
 }
+
+/** Exact match against the bundled sample catalog images. These are never attached to X posts. */
+export function isSampleCatalogImageUrl(url: string | null | undefined): boolean {
+  const value = url?.trim() ?? "";
+  return value.length > 0 && mockProducts.some((p) => p.image === value);
+}

@@ -5,7 +5,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getClientPlanTier, getPlanConfig, limitLabel } from "@/src/lib/plans/config";
 import { getPostStatusCopy } from "@/lib/post-status-copy";
+import {
+  isTestOnlyPlatform,
+  publishPlatformBadgeLabel,
+  testPublishNotice,
+} from "@/lib/publish-platform-copy";
+import { PUBLISHING_TIMING_NOTE, PUBLISHING_TIMING_SHORT } from "@/lib/publishing-timing-copy";
 import { toUserFacingError } from "@/lib/user-facing-error";
+import { isUploadedScheduledImageUrl } from "@/src/lib/media/image-upload";
 
 type ScheduledPost = {
   id: string;
@@ -31,7 +38,9 @@ type FailureKind = "auth" | "publish" | "validation" | "plan" | "temporary" | "u
 const UI_STATE_KEY = "promi:scheduled-ui:v2";
 
 const REFRESH_EVENT = "promi:scheduled-posts-updated";
-const POLL_INTERVAL_MS = 5000;
+/** Each poll hits the database; keep this modest and pause while the tab is hidden. */
+const POLL_INTERVAL_MS = 15000;
+const RESUME_REFRESH_DEDUPE_MS = 2000;
 const OVERDUE_TICK_MS = 1000;
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-zinc-500/40 dark:focus-visible:ring-offset-zinc-950";
@@ -45,17 +54,6 @@ function formatScheduledAt(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "Not set";
   return dateTimeFormatter.format(d);
-}
-
-function channelLabel(id: string): string {
-  if (id === "instagram") return "Instagram";
-  if (id === "pinterest") return "Pinterest";
-  return id;
-}
-
-function readChannels(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((v): v is string => typeof v === "string");
 }
 
 function readPreview(raw: unknown): string {
@@ -160,6 +158,23 @@ function platformLabel(platform: ScheduledPost["platform"]): string {
   return "Facebook";
 }
 
+function cancelUnavailableReason(post: Pick<ScheduledPost, "status">, isOverdue: boolean): string | null {
+  if (post.status === "processing") return "Can't cancel: this post is being published right now.";
+  if (isOverdue) return "Can't cancel: this post is already due and may be publishing now.";
+  return null;
+}
+
+/** The retry API accepts failed and needs_reconnect posts; reconnect failures become retryable once the account is fixed. */
+function canRetryPost(post: Pick<ScheduledPost, "status" | "errorCode">): boolean {
+  if (post.status === "failed" && isRetryableErrorCode(post.errorCode)) return true;
+  return (post.status === "failed" || post.status === "needs_reconnect") && isNeedsReconnect(post);
+}
+
+function displayStatusLabel(post: Pick<ScheduledPost, "status" | "platform">, isOverdue: boolean): string {
+  if (post.status === "published" && isTestOnlyPlatform(post.platform)) return "Test publish";
+  return getPostStatusCopy(post.status, { isOverdue }).label;
+}
+
 function isNeedsReconnect(post: Pick<ScheduledPost, "status" | "errorCode">): boolean {
   return (
     post.status === "needs_reconnect"
@@ -231,13 +246,14 @@ export function ServerScheduledPostsList() {
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const [activeScheduledCount, setActiveScheduledCount] = useState<number | null>(null);
+  const [reloading, setReloading] = useState(false);
   const loadErrorRef = useRef<HTMLDivElement | null>(null);
+  const lastFocusedLoadErrorRef = useRef<string | null>(null);
   const actionErrorRef = useRef<HTMLDivElement | null>(null);
   const plan = getPlanConfig(getClientPlanTier());
 
+  // Errors are only cleared on success so a failing poll keeps the same message instead of flickering.
   const refresh = useCallback(async () => {
-    setError(null);
-    setErrorCode(null);
     try {
       const res = await fetch("/api/scheduled-posts?limit=100", { cache: "no-store" });
       const body = (await res.json().catch(() => null)) as { data?: ScheduledPost[]; error?: string; code?: string } | null;
@@ -248,6 +264,8 @@ export function ServerScheduledPostsList() {
       }
       const next = Array.isArray(body?.data) ? body.data : [];
       setItems(next);
+      setError(null);
+      setErrorCode(null);
     } catch {
       setError("Could not load scheduled posts.");
       setErrorCode(null);
@@ -269,25 +287,61 @@ export function ServerScheduledPostsList() {
     }
   }, []);
 
+  const handleReload = useCallback(async () => {
+    setReloading(true);
+    await refresh();
+    setReloading(false);
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
     void refreshActiveUsage();
 
-    const intervalId = window.setInterval(() => {
+    let intervalId: number | undefined;
+    let lastResumeRefreshAt = 0;
+    const startPolling = () => {
+      if (intervalId !== undefined) return;
+      intervalId = window.setInterval(() => {
+        void refresh();
+      }, POLL_INTERVAL_MS);
+    };
+    const stopPolling = () => {
+      if (intervalId === undefined) return;
+      window.clearInterval(intervalId);
+      intervalId = undefined;
+    };
+    // Tab return fires both visibilitychange and focus; refresh once.
+    const refreshOnResume = () => {
+      const now = Date.now();
+      if (now - lastResumeRefreshAt < RESUME_REFRESH_DEDUPE_MS) return;
+      lastResumeRefreshAt = now;
       void refresh();
-    }, POLL_INTERVAL_MS);
+    };
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        stopPolling();
+        return;
+      }
+      refreshOnResume();
+      stopPolling();
+      startPolling();
+    };
     const onFocus = () => {
-      void refresh();
+      if (document.visibilityState === "hidden") return;
+      refreshOnResume();
     };
     const onUpdated = () => {
       void refresh();
     };
 
+    if (document.visibilityState !== "hidden") startPolling();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
     window.addEventListener(REFRESH_EVENT, onUpdated);
     return () => {
-      window.clearInterval(intervalId);
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(REFRESH_EVENT, onUpdated);
     };
@@ -321,6 +375,23 @@ export function ServerScheduledPostsList() {
     }
   }, []);
 
+  // Prefer list-first below md; calendar remains available as a secondary view.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    let timeoutId: number | undefined;
+    const preferListOnNarrow = () => {
+      if (!mq.matches) return;
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => setViewMode("list"), 0);
+    };
+    preferListOnNarrow();
+    mq.addEventListener("change", preferListOnNarrow);
+    return () => {
+      window.clearTimeout(timeoutId);
+      mq.removeEventListener("change", preferListOnNarrow);
+    };
+  }, []);
+
   useEffect(() => {
     try {
       window.sessionStorage.setItem(
@@ -335,12 +406,22 @@ export function ServerScheduledPostsList() {
   useEffect(() => {
     if (actionError && actionErrorRef.current) {
       actionErrorRef.current.focus();
+    }
+  }, [actionError]);
+
+  // Load errors come from background polls: focus once per distinct error, never while the user is typing.
+  useEffect(() => {
+    if (!error) {
+      lastFocusedLoadErrorRef.current = null;
       return;
     }
-    if (error && loadErrorRef.current) {
-      loadErrorRef.current.focus();
-    }
-  }, [actionError, error]);
+    if (lastFocusedLoadErrorRef.current === error) return;
+    lastFocusedLoadErrorRef.current = error;
+    const active = document.activeElement;
+    const isEditing =
+      active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement;
+    if (!isEditing) loadErrorRef.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     if (!announceFilterResults) return;
@@ -406,7 +487,42 @@ export function ServerScheduledPostsList() {
         role="status"
         aria-live="polite"
       >
-        Loading scheduled posts...
+        Loading scheduled posts…
+      </div>
+    );
+  }
+
+  if (items.length === 0 && error) {
+    const details = toUserFacingError(errorCode, error);
+    return (
+      <div
+        ref={loadErrorRef}
+        tabIndex={-1}
+        className="rounded-lg border border-red-200 bg-red-50 p-6 text-center dark:border-red-900/40 dark:bg-red-950/30"
+      >
+        <p className="text-sm font-medium text-red-700 dark:text-red-300" role="alert">
+          Couldn&apos;t load scheduled posts.
+        </p>
+        <p className="mt-1 text-sm text-red-700 dark:text-red-300">{details.message}</p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleReload()}
+            disabled={reloading}
+            className={`rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-950/50 ${FOCUS_RING}`}
+          >
+            {reloading ? "Retrying…" : "Retry"}
+          </button>
+          {details.actions.map((action) => (
+            <Link
+              key={`${action.href}-${action.label}`}
+              href={action.href}
+              className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100"
+            >
+              {action.label}
+            </Link>
+          ))}
+        </div>
       </div>
     );
   }
@@ -414,38 +530,27 @@ export function ServerScheduledPostsList() {
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-zinc-200 bg-white p-8 text-center dark:border-zinc-700 dark:bg-zinc-950">
-        {error ? (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400" role="alert">
-            {error}
-          </p>
-        ) : null}
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           No scheduled posts yet. Schedule your first post to see upcoming publishing in one place.
         </p>
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          This is your server publishing queue. Device-only drafts stay in Drafts.
+          Upcoming posts appear here. Drafts saved only on this device stay in Drafts.
         </p>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Publishing can start shortly after the exact scheduled minute.
+          {PUBLISHING_TIMING_SHORT}
         </p>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/create"
             className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Create first post
+            Create post
           </Link>
           <Link
             href="/settings/accounts"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            className="text-xs font-medium text-zinc-700 underline underline-offset-2 dark:text-zinc-300"
           >
-            Connect account
-          </Link>
-          <Link
-            href="/history"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            Check History
+            Connect an account
           </Link>
         </div>
       </div>
@@ -520,18 +625,18 @@ export function ServerScheduledPostsList() {
     <section aria-label="Scheduled post queue controls and results" className="space-y-3">
       <div className="rounded-lg border border-zinc-200 bg-white p-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
         Plan: <span className="font-semibold text-zinc-900 dark:text-zinc-100">{plan.label}</span> · Active scheduled posts:{" "}
-        {activeScheduledCount ?? "..."}/{limitLabel(plan.limits.scheduledPostsActive)}
+        {activeScheduledCount ?? "…"}/{limitLabel(plan.limits.scheduledPostsActive)}
         {getClientPlanTier() === "free" ? (
           <>
             {" "}
             <Link href="/upgrade" className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-              Upgrade to Pro
+              Upgrade
             </Link>
           </>
         ) : null}
       </div>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        The server scheduler checks this queue continuously. A post can move to Processing shortly after its scheduled time.
+        {PUBLISHING_TIMING_NOTE}
       </p>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
         Needs attention first:{" "}
@@ -550,10 +655,11 @@ export function ServerScheduledPostsList() {
             </p>
             <button
               type="button"
-              onClick={() => void refresh()}
-              className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/50"
+              onClick={() => void handleReload()}
+              disabled={reloading}
+              className="shrink-0 rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/50"
             >
-              Retry
+              {reloading ? "Retrying…" : "Retry"}
             </button>
           </div>
           {loadErrorDetails?.actions.map((action) => (
@@ -587,36 +693,38 @@ export function ServerScheduledPostsList() {
           ))}
         </div>
       ) : null}
-      <fieldset className="flex flex-wrap gap-2">
+      <fieldset className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <legend className="sr-only">Scheduled post filters and view options</legend>
-        <button
-          type="button"
-          onClick={() => {
-            setViewMode("list");
-            setAnnounceFilterResults(true);
-          }}
-          className={`rounded-md border px-2.5 py-1.5 text-xs ${FOCUS_RING} ${
-            viewMode === "list"
-              ? "border-zinc-800 bg-zinc-900 text-zinc-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-900"
-              : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-          }`}
-        >
-          List view
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setViewMode("calendar");
-            setAnnounceFilterResults(true);
-          }}
-          className={`rounded-md border px-2.5 py-1.5 text-xs ${FOCUS_RING} ${
-            viewMode === "calendar"
-              ? "border-zinc-800 bg-zinc-900 text-zinc-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-900"
-              : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-          }`}
-        >
-          Calendar view
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode("list");
+              setAnnounceFilterResults(true);
+            }}
+            className={`rounded-md border px-2.5 py-1.5 text-xs ${FOCUS_RING} ${
+              viewMode === "list"
+                ? "border-zinc-800 bg-zinc-900 text-zinc-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-900"
+                : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+            }`}
+          >
+            List view
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode("calendar");
+              setAnnounceFilterResults(true);
+            }}
+            className={`rounded-md border px-2.5 py-1.5 text-xs ${FOCUS_RING} ${
+              viewMode === "calendar"
+                ? "border-zinc-800 bg-zinc-900 text-zinc-50 dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-900"
+                : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+            }`}
+          >
+            Calendar view
+          </button>
+        </div>
         <input
           type="search"
           value={query}
@@ -625,7 +733,7 @@ export function ServerScheduledPostsList() {
             setAnnounceFilterResults(true);
           }}
           placeholder="Search product, snippet, or ID"
-          className="min-w-[220px] rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500"
+          className="w-full min-w-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500 sm:min-w-[220px] sm:flex-1"
           aria-label="Search scheduled posts"
         />
         <select
@@ -727,6 +835,9 @@ export function ServerScheduledPostsList() {
       ) : null}
       {filtered.length > 0 && viewMode === "calendar" ? (
         <section className="space-y-3">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 md:hidden">
+            Calendar works best with a wider screen. Swipe sideways to see the full week, or switch back to List view.
+          </p>
           <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
             <button
               type="button"
@@ -812,24 +923,32 @@ export function ServerScheduledPostsList() {
                   const scheduledAtMs = new Date(p.scheduledAt).getTime();
                   const isOverdue = Number.isFinite(scheduledAtMs) && p.status === "scheduled" && scheduledAtMs <= nowMs;
                   const editable = p.status === "scheduled";
-                  const retryable = p.status === "failed" && isRetryableErrorCode(p.errorCode);
+                  const retryable = canRetryPost(p);
                   const needsReconnect = isNeedsReconnect(p);
                   const actionBusy = cancellingId === p.id || retryingId === p.id;
                   return (
                     <li key={p.id} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                          {platformLabel(p.platform)} • {formatTimeOnly(p.scheduledAt)}
+                          {publishPlatformBadgeLabel(p.platform)} • {formatTimeOnly(p.scheduledAt)}
                         </p>
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClassName(p.status, isOverdue)}`}
-                          aria-label={`Post status: ${getPostStatusCopy(p.status, { isOverdue }).label}`}
+                          aria-label={`Post status: ${displayStatusLabel(p, isOverdue)}`}
                         >
-                          {getPostStatusCopy(p.status, { isOverdue }).label}
+                          {displayStatusLabel(p, isOverdue)}
                         </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">{readPreview(p.contentPayload)}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      {p.status === "published" && isTestOnlyPlatform(p.platform) ? (
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{testPublishNotice(p.platform)}</p>
+                      ) : null}
+                      {needsReconnect && retryable ? (
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          {getPostStatusCopy("needs_reconnect").actionHint}
+                        </p>
+                      ) : null}
+                      <div className="mt-2 flex flex-col gap-2 *:text-center sm:flex-row sm:flex-wrap">
                         {editable ? (
                           <Link
                             href={`/scheduled/${encodeURIComponent(p.id)}/edit`}
@@ -841,6 +960,8 @@ export function ServerScheduledPostsList() {
                         {needsReconnect ? (
                           <a
                             href={`/api/oauth/${encodeURIComponent(p.platform)}/start`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className={`rounded-md border px-2 py-1 text-xs ${
                               actionBusy
                                 ? "pointer-events-none border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
@@ -857,7 +978,7 @@ export function ServerScheduledPostsList() {
                             disabled={actionBusy}
                             className={`rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
                           >
-                            {retryingId === p.id ? "Retrying..." : "Retry"}
+                            {retryingId === p.id ? "Retrying…" : "Retry"}
                           </button>
                         ) : null}
                         <Link
@@ -883,12 +1004,18 @@ export function ServerScheduledPostsList() {
                         <button
                           type="button"
                           onClick={() => void handleCancel(p.id)}
-                          disabled={actionBusy || p.status === "published" || p.status === "processing" || isOverdue}
+                          disabled={actionBusy || p.status === "cancelled" || p.status === "published" || p.status === "processing" || isOverdue}
+                          aria-describedby={cancelUnavailableReason(p, isOverdue) ? `cancel-reason-cal-${p.id}` : undefined}
                           className={`rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
                         >
-                          {cancellingId === p.id ? "Canceling..." : "Cancel"}
+                          {cancellingId === p.id ? "Canceling…" : "Cancel"}
                         </button>
                       </div>
+                      {cancelUnavailableReason(p, isOverdue) ? (
+                        <p id={`cancel-reason-cal-${p.id}`} className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                          {cancelUnavailableReason(p, isOverdue)}
+                        </p>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -905,7 +1032,7 @@ export function ServerScheduledPostsList() {
               const scheduledAtMs = new Date(p.scheduledAt).getTime();
               const isOverdue = Number.isFinite(scheduledAtMs) && p.status === "scheduled" && scheduledAtMs <= nowMs;
               const failure = mapFailureDetails(p);
-              const retryable = p.status === "failed" && isRetryableErrorCode(p.errorCode);
+              const retryable = canRetryPost(p);
               const editable = p.status === "scheduled";
               const needsReconnect = isNeedsReconnect(p);
               const actionBusy = cancellingId === p.id || retryingId === p.id;
@@ -916,7 +1043,14 @@ export function ServerScheduledPostsList() {
                 >
                   <div className="relative mx-auto aspect-square w-16 shrink-0 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800 sm:mx-0">
                     {p.imageUrl ? (
-                      <Image src={p.imageUrl} alt={p.productName} fill className="object-cover" sizes="64px" />
+                      <Image
+                        src={p.imageUrl}
+                        alt={p.productName}
+                        fill
+                        className="object-cover"
+                        sizes="64px"
+                        unoptimized={isUploadedScheduledImageUrl(p.imageUrl)}
+                      />
                     ) : (
                       <div className="flex h-full items-center justify-center text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
                         No image
@@ -928,24 +1062,19 @@ export function ServerScheduledPostsList() {
                       <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{p.productName}</h2>
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusClassName(p.status, isOverdue)}`}
-                        aria-label={`Post status: ${getPostStatusCopy(p.status, { isOverdue }).label}`}
+                        aria-label={`Post status: ${displayStatusLabel(p, isOverdue)}`}
                       >
-                        {getPostStatusCopy(p.status, { isOverdue }).label}
+                        {displayStatusLabel(p, isOverdue)}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <span className="rounded-md border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-                        {platformLabel(p.platform)}
+                        Publish to: {publishPlatformBadgeLabel(p.platform)}
                       </span>
-                      {readChannels(p.channels).map((ch) => (
-                        <span
-                          key={`${p.id}-${ch}`}
-                          className="rounded-md border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
-                        >
-                          {channelLabel(ch)}
-                        </span>
-                      ))}
                     </div>
+                    {p.status === "published" && isTestOnlyPlatform(p.platform) ? (
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">{testPublishNotice(p.platform)}</p>
+                    ) : null}
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
                       <span className="font-medium text-zinc-600 dark:text-zinc-300">When: </span>
                       {formatScheduledAt(p.scheduledAt)}
@@ -969,7 +1098,7 @@ export function ServerScheduledPostsList() {
                         <p className="text-xs text-red-700 dark:text-red-300">{failure.message}</p>
                       </div>
                     ) : null}
-                    {retryable ? (
+                    {retryable && !needsReconnect ? (
                       <p className="text-xs text-zinc-500 dark:text-zinc-400">
                         {getPostStatusCopy("failed").actionHint}
                       </p>
@@ -985,7 +1114,7 @@ export function ServerScheduledPostsList() {
                       </p>
                     ) : null}
                   </div>
-                  <div className="flex shrink-0 flex-row flex-wrap gap-2 sm:flex-col sm:items-stretch">
+                  <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-stretch">
                     {editable ? (
                       <Link
                         href={`/scheduled/${encodeURIComponent(p.id)}/edit`}
@@ -1001,6 +1130,8 @@ export function ServerScheduledPostsList() {
                     {needsReconnect ? (
                       <a
                         href={`/api/oauth/${encodeURIComponent(p.platform)}/start`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className={`promi-press inline-flex flex-1 items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-[background-color,box-shadow,transform,color] duration-200 ease-out sm:flex-none ${
                           actionBusy
                             ? "pointer-events-none border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
@@ -1018,7 +1149,7 @@ export function ServerScheduledPostsList() {
                           disabled={actionBusy}
                           className="promi-press inline-flex flex-1 items-center justify-center rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 sm:flex-none"
                         >
-                          {retryingId === p.id ? "Retrying..." : "Retry"}
+                          {retryingId === p.id ? "Retrying…" : "Retry"}
                         </button>
                       </>
                     ) : null}
@@ -1031,7 +1162,7 @@ export function ServerScheduledPostsList() {
                             : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
                         }`}
                       >
-                        Upgrade to Pro
+                        Upgrade
                       </Link>
                     ) : null}
                     <Link
@@ -1058,10 +1189,16 @@ export function ServerScheduledPostsList() {
                       type="button"
                       onClick={() => void handleCancel(p.id)}
                       disabled={actionBusy || p.status === "cancelled" || p.status === "published" || p.status === "processing" || isOverdue}
+                      aria-describedby={cancelUnavailableReason(p, isOverdue) ? `cancel-reason-${p.id}` : undefined}
                       className="promi-press inline-flex flex-1 items-center justify-center rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-red-200/80 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-red-900/50 dark:hover:bg-red-950/40 dark:hover:text-red-300 sm:flex-none"
                     >
-                      {cancellingId === p.id ? "Canceling..." : "Cancel"}
+                      {cancellingId === p.id ? "Canceling…" : "Cancel"}
                     </button>
+                    {cancelUnavailableReason(p, isOverdue) ? (
+                      <p id={`cancel-reason-${p.id}`} className="text-xs text-zinc-500 dark:text-zinc-400 sm:max-w-[11rem]">
+                        {cancelUnavailableReason(p, isOverdue)}
+                      </p>
+                    ) : null}
                   </div>
                 </li>
               );

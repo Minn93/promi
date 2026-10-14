@@ -1,7 +1,9 @@
 import Image from "next/image";
+import { isUploadedScheduledImageUrl } from "@/src/lib/media/image-upload";
 
 type PreviewCardBase = {
-  imageSrc: string;
+  /** Omit when there is no image; a neutral placeholder is shown instead. */
+  imageSrc?: string | null;
   imageAlt: string;
   /** When false, caption/title/description use muted placeholder styling. */
   isFilled?: boolean;
@@ -26,6 +28,26 @@ export function PreviewCard(props: PreviewCardProps) {
     return <InstagramPreview {...props} />;
   }
   return <PinterestPreview {...props} />;
+}
+
+function PreviewImage({ src, alt }: { src?: string | null; alt: string }) {
+  if (!src) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400 dark:text-zinc-500">
+        No image
+      </div>
+    );
+  }
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      className="object-cover"
+      sizes="300px"
+      unoptimized={isUploadedScheduledImageUrl(src)}
+    />
+  );
 }
 
 function mutedBody(isFilled: boolean | undefined): string {
@@ -56,7 +78,7 @@ function InstagramPreview({
         </div>
       </div>
       <div className="relative aspect-square w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900">
-        <Image src={imageSrc} alt={imageAlt} fill className="object-cover" sizes="300px" />
+        <PreviewImage src={imageSrc} alt={imageAlt} />
       </div>
       <div className="space-y-2 p-3">
         <p className={`text-xs leading-relaxed whitespace-pre-wrap ${body}`}>{caption}</p>
@@ -85,7 +107,7 @@ function PinterestPreview({
   return (
     <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900">
-        <Image src={imageSrc} alt={imageAlt} fill className="object-cover" sizes="300px" />
+        <PreviewImage src={imageSrc} alt={imageAlt} />
       </div>
       <div className="space-y-1 border-t border-zinc-100 p-3 dark:border-zinc-800">
         <p className={titleCls}>{title}</p>

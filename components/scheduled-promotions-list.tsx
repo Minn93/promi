@@ -3,8 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { getProductById } from "@/lib/mock-data";
 import { readPromotions, removePromotionById } from "@/lib/promotions-storage";
 import type { Promotion } from "@/lib/types";
+import { isUploadedScheduledImageUrl } from "@/src/lib/media/image-upload";
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -22,6 +24,14 @@ function channelLabel(id: string): string {
   if (id === "instagram") return "Instagram";
   if (id === "pinterest") return "Pinterest";
   return id;
+}
+
+/** Sample-product drafts keep `productId` in the link; user-entered drafts restore from `promotionId` alone. */
+function draftHref(p: Promotion): string {
+  const params = new URLSearchParams();
+  if (getProductById(p.productId)) params.set("productId", p.productId);
+  params.set("promotionId", p.id);
+  return `/create?${params.toString()}`;
 }
 
 function statusLabel(status: Promotion["status"]): string {
@@ -146,13 +156,20 @@ export function ScheduledPromotionsList({
           className="promi-card-lift flex flex-col gap-4 rounded-lg border border-zinc-200 bg-white p-4 transition-[box-shadow,transform,border-color] duration-200 ease-out motion-safe:hover:-translate-y-0.5 motion-safe:hover:border-zinc-300 motion-safe:hover:shadow-md motion-safe:hover:shadow-zinc-900/[0.06] dark:border-zinc-800 dark:bg-zinc-950 dark:motion-safe:hover:border-zinc-600 dark:motion-safe:hover:shadow-black/35 sm:flex-row sm:items-start"
         >
           <div className="relative mx-auto aspect-square w-16 shrink-0 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800 sm:mx-0">
-            <Image
-              src={p.productImage}
-              alt={p.productName}
-              fill
-              className="object-cover"
-              sizes="64px"
-            />
+            {p.productImage ? (
+              <Image
+                src={p.productImage}
+                alt={p.productName}
+                fill
+                className="object-cover"
+                sizes="64px"
+                unoptimized={isUploadedScheduledImageUrl(p.productImage)}
+              />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center text-[10px] text-zinc-400 dark:text-zinc-500">
+                No image
+              </span>
+            )}
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -187,7 +204,7 @@ export function ScheduledPromotionsList({
           </div>
           <div className="flex shrink-0 flex-row gap-2 sm:flex-col sm:items-stretch">
             <Link
-              href={`/create?productId=${encodeURIComponent(p.productId)}&promotionId=${encodeURIComponent(p.id)}`}
+              href={draftHref(p)}
               className="promi-press inline-flex flex-1 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 py-2 text-center text-sm font-medium text-zinc-900 transition-[background-color,box-shadow,transform,border-color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-50 hover:shadow-sm hover:shadow-zinc-900/[0.04] active:scale-[0.98] motion-safe:active:translate-y-px dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 dark:hover:shadow-black/30 sm:flex-none"
             >
               View

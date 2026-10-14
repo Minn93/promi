@@ -31,7 +31,7 @@ export default function TermsPage() {
           revoke access to protect service reliability, security, or policy compliance.
         </p>
         <p>
-          If you want your account or associated data removed, contact the operator/admin for your deployment and
+          If you want your account or associated data removed, contact Promi support and
           request account/data deletion.
         </p>
       </section>

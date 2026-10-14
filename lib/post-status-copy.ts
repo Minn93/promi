@@ -12,13 +12,13 @@ export type PostStatusCopy = {
 const STATUS_COPY: Record<InternalPostStatus, PostStatusCopy> = {
   draft: {
     label: "Draft",
-    description: "Saved on this device. Not in the server queue yet.",
+    description: "Saved on this device. Not scheduled to publish yet.",
     actionHint: "Schedule it when ready.",
     tone: "default",
   },
   scheduled: {
     label: "Scheduled",
-    description: "Waiting in the server queue for publish time.",
+    description: "Waiting for its scheduled time.",
     actionHint: null,
     tone: "default",
   },
@@ -43,7 +43,7 @@ const STATUS_COPY: Record<InternalPostStatus, PostStatusCopy> = {
   needs_reconnect: {
     label: "Needs reconnect",
     description: "Account connection needs attention.",
-    actionHint: "Reconnect the account, then retry or reschedule.",
+    actionHint: "Select Reconnect account (it opens in a new tab), then come back and select Retry.",
     tone: "warning",
   },
   cancelled: {
@@ -63,8 +63,8 @@ const UNKNOWN_COPY: PostStatusCopy = {
 
 const OVERDUE_SCHEDULED_COPY: PostStatusCopy = {
   label: "Scheduled (late)",
-  description: "Scheduled time passed. Waiting for the next scheduler pickup.",
-  actionHint: "If this stays late, refresh and check History.",
+  description: "Scheduled time passed. It will publish the next time Promi's publishing job runs.",
+  actionHint: "During the beta this can be later than the scheduled time. Check History for the outcome.",
   tone: "warning",
 };
 

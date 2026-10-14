@@ -6,7 +6,7 @@ export default function ScheduledPage() {
     <>
       <PageHeader
         title="Scheduled"
-        description="Server publishing queue. Posts are picked up automatically and may run a short time after the exact scheduled minute."
+        description="Upcoming posts and their status. During the beta, posts are sent when Promi's publishing job runs, which can be later than the scheduled time."
       />
       <ServerScheduledPostsList />
     </>

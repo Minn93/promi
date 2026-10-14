@@ -33,9 +33,10 @@ export default async function CreatePromotionPage({ searchParams }: CreatePagePr
     <>
       <PageHeader
         title="Create post"
-        description="Tune channels, tone, and angle—then generate copy for your posts."
+        description="Choose what to promote and where to publish, then generate, review, and schedule your post."
       />
       <CreatePromotionForm
+        key={[id, promotionId, sourcePostId, mode, templateId].map((value) => value ?? "").join("|")}
         product={product}
         invalidProductId={invalidProductId}
         promotionId={promotionId?.trim() || undefined}

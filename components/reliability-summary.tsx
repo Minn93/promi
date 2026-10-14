@@ -60,7 +60,7 @@ export function ReliabilitySummary() {
   const summary = useMemo(() => {
     const failedPosts = scheduledPosts.filter((post) => post.status === "failed").length;
     const reconnectPosts = scheduledPosts.filter((post) => post.status === "needs_reconnect").length;
-    const reconnectAccounts = accounts.filter((account) => account.status !== "active").length;
+    const reconnectAccounts = accounts.filter((account) => account.status === "expired" || account.status === "error").length;
     const upcomingToday = scheduledPosts.filter((post) => post.status === "scheduled" && isToday(post.scheduledAt)).length;
     return { failedPosts, reconnectPosts, reconnectAccounts, upcomingToday };
   }, [scheduledPosts, accounts]);
@@ -71,7 +71,7 @@ export function ReliabilitySummary() {
         <h2 id="reliability-summary-heading" className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           Reliability at a glance
         </h2>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{loading ? "Loading..." : "Live snapshot"}</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">{loading ? "Loading…" : "Live snapshot"}</p>
       </div>
       {warning ? (
         <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">

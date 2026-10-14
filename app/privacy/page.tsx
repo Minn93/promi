@@ -29,7 +29,7 @@ export default function PrivacyPage() {
           operation.
         </p>
         <p>
-          To request deletion of your account or associated data, contact the operator/admin for your deployment and
+          To request deletion of your account or associated data, contact Promi support and
           ask for account/data deletion.
         </p>
       </section>

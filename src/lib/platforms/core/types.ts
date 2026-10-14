@@ -5,6 +5,8 @@ export type PublishInput = {
   accountId: string;
   text: string;
   mediaUrl?: string | null;
+  /** Owner of the scheduled post; uploaded media must belong to this owner. */
+  ownerId?: string | null;
   idempotencyKey?: string | null;
   accessToken?: string | null;
   externalAccountId?: string | null;

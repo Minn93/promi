@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { publishPlatformBadgeLabel } from "@/lib/publish-platform-copy";
 import { saveReusableTemplateFromScheduledPostId } from "@/lib/reusable-post-templates-storage";
 import { getPlanConfig, hasPlanFeature, limitLabel, type PlanTier } from "@/src/lib/plans/config";
 import {
@@ -24,21 +25,25 @@ type SortBy = "latest" | "views" | "engagement";
 type PlatformFilter = "all" | Platform;
 type ViewMode = "table" | "cards";
 type MetricKey = "views" | "likes" | "comments" | "shares" | "engagement";
+type CountMetricKey = Exclude<MetricKey, "engagement">;
+/** `null` means the platform did not report this metric; never substitute a synthetic value. */
+type Metric = number | null;
 
 type AnalyticsRow = {
   id: string;
   platform: Platform;
   publishedAt: string;
   preview: string;
-  views: number;
-  likes: number;
-  comments: number;
-  shares: number;
+  views: Metric;
+  likes: Metric;
+  comments: Metric;
+  shares: Metric;
 };
+
+type MetricSum = { total: number; known: number };
 
 type AnalyticsDashboardProps = {
   rows: AnalyticsRow[];
-  usesFallbackMetrics: boolean;
   planTier: PlanTier;
 };
 
@@ -61,9 +66,7 @@ function parsePlatformFilter(value: string | null): PlatformFilter {
 }
 
 function platformLabel(platform: Platform): string {
-  if (platform === "x") return "X";
-  if (platform === "instagram") return "Instagram";
-  return "Facebook";
+  return publishPlatformBadgeLabel(platform);
 }
 
 function formatAt(iso: string): string {
@@ -89,13 +92,61 @@ function toNumericValue(value: unknown): number {
   return 0;
 }
 
-function engagementRate(item: Pick<AnalyticsRow, "views" | "likes" | "comments" | "shares">): number {
+function hasAnyMetric(item: Pick<AnalyticsRow, CountMetricKey>): boolean {
+  return item.views != null || item.likes != null || item.comments != null || item.shares != null;
+}
+
+function hasAllMetrics(item: Pick<AnalyticsRow, CountMetricKey>): boolean {
+  return item.views != null && item.likes != null && item.comments != null && item.shares != null;
+}
+
+/** Only computed when every count metric was reported; partial data would distort the rate. */
+function engagementRate(item: Pick<AnalyticsRow, CountMetricKey>): number | null {
+  if (item.views == null || item.likes == null || item.comments == null || item.shares == null) return null;
   if (item.views <= 0) return 0;
   return (item.likes + item.comments + item.shares) / item.views;
 }
 
+function sumMetric(items: Array<Pick<AnalyticsRow, CountMetricKey>>, key: CountMetricKey): MetricSum {
+  return items.reduce<MetricSum>(
+    (acc, item) => {
+      const value = item[key];
+      if (value == null) return acc;
+      return { total: acc.total + clampInt(value), known: acc.known + 1 };
+    },
+    { total: 0, known: 0 },
+  );
+}
+
+function averageOf(sum: MetricSum): number {
+  return sum.known > 0 ? sum.total / sum.known : 0;
+}
+
+function compareNullableDesc(a: number | null, b: number | null): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return b - a;
+}
+
+function formatMetric(value: Metric): string {
+  return value == null ? "—" : clampInt(value).toLocaleString();
+}
+
+function formatSum(sum: MetricSum): string {
+  return sum.known === 0 ? "—" : sum.total.toLocaleString();
+}
+
+function spokenMetric(value: Metric, label: string): string {
+  return value == null ? `${label} not available` : `${clampInt(value).toLocaleString()} ${label}`;
+}
+
 function percent(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
+}
+
+function formatRate(rate: number | null): string {
+  return rate == null ? "—" : percent(rate);
 }
 
 function shortDate(iso: string): string {
@@ -157,7 +208,7 @@ function KpiCard({ label, value, hint }: { label: string; value: string | number
   );
 }
 
-export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: AnalyticsDashboardProps) {
+export function AnalyticsDashboard({ rows, planTier }: AnalyticsDashboardProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -174,7 +225,16 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
   const query = (searchParams.get("q") ?? "").trim();
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [templateNotice, setTemplateNotice] = useState<string | null>(null);
+  const [savedTemplateId, setSavedTemplateId] = useState<string | null>(null);
   const [savingTemplateId, setSavingTemplateId] = useState<string | null>(null);
+
+  // Narrow screens default to cards; desktop keeps table. No persisted preference.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    if (!mq.matches) return;
+    const timeoutId = window.setTimeout(() => setViewMode("cards"), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   const updateQuery = useCallback((next: { range?: DateRange; sort?: SortBy; platform?: PlatformFilter; q?: string }) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -204,54 +264,82 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
         return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
       }
       if (sortBy === "views") {
-        return b.views - a.views;
+        return compareNullableDesc(a.views, b.views);
       }
-      return engagementRate(b) - engagementRate(a);
+      return compareNullableDesc(engagementRate(a), engagementRate(b));
     });
   }, [rows, dateRange, sortBy, platformFilter, query]);
 
+  const hasAnyMetrics = useMemo(() => filtered.some(hasAnyMetric), [filtered]);
+
+  const missingMetricsNotice = useMemo(() => {
+    const missing = rows.filter((row) => !hasAllMetrics(row));
+    if (missing.length === 0) return null;
+    const platforms = [...new Set(missing.map((row) => platformLabel(row.platform)))].join(" or ");
+    const scope = missing.length === rows.length ? "these posts" : "some posts";
+    return `Engagement metrics aren't available from ${platforms} for ${scope} yet. Missing values show as — and aren't counted in totals.`;
+  }, [rows]);
+
   const totals = useMemo(() => {
     const totalPosts = filtered.length;
-    const totalViews = filtered.reduce((sum, row) => sum + clampInt(row.views), 0);
-    const totalLikes = filtered.reduce((sum, row) => sum + clampInt(row.likes), 0);
-    const totalComments = filtered.reduce((sum, row) => sum + clampInt(row.comments), 0);
-    const totalShares = filtered.reduce((sum, row) => sum + clampInt(row.shares), 0);
-    const avgEngagementRate = totalViews > 0 ? (totalLikes + totalComments + totalShares) / totalViews : 0;
-    return { totalPosts, totalViews, totalLikes, totalComments, totalShares, avgEngagementRate };
+    const complete = filtered.filter(hasAllMetrics);
+    const completeViews = sumMetric(complete, "views").total;
+    const completeInteractions =
+      sumMetric(complete, "likes").total + sumMetric(complete, "comments").total + sumMetric(complete, "shares").total;
+    const avgEngagementRate =
+      complete.length === 0 ? null : completeViews > 0 ? completeInteractions / completeViews : 0;
+    return {
+      totalPosts,
+      views: sumMetric(filtered, "views"),
+      likes: sumMetric(filtered, "likes"),
+      comments: sumMetric(filtered, "comments"),
+      shares: sumMetric(filtered, "shares"),
+      avgEngagementRate,
+      completePosts: complete.length,
+    };
   }, [filtered]);
 
   const platformRows = useMemo(() => {
-    const map = new Map<Platform, { posts: number; views: number; likes: number; comments: number; shares: number }>();
-    for (const row of filtered) {
-      const current = map.get(row.platform) ?? { posts: 0, views: 0, likes: 0, comments: 0, shares: 0 };
-      current.posts += 1;
-      current.views += clampInt(row.views);
-      current.likes += clampInt(row.likes);
-      current.comments += clampInt(row.comments);
-      current.shares += clampInt(row.shares);
-      map.set(row.platform, current);
-    }
     return (["x", "instagram", "facebook"] as Platform[])
       .map((platform) => {
-        const data = map.get(platform) ?? { posts: 0, views: 0, likes: 0, comments: 0, shares: 0 };
-        const rate = data.views > 0 ? (data.likes + data.comments + data.shares) / data.views : 0;
-        return { platform, ...data, engagementRate: rate };
+        const items = filtered.filter((row) => row.platform === platform);
+        const complete = items.filter(hasAllMetrics);
+        const completeViews = sumMetric(complete, "views").total;
+        const completeInteractions =
+          sumMetric(complete, "likes").total + sumMetric(complete, "comments").total + sumMetric(complete, "shares").total;
+        const rate = complete.length === 0 ? null : completeViews > 0 ? completeInteractions / completeViews : 0;
+        return {
+          platform,
+          posts: items.length,
+          views: sumMetric(items, "views"),
+          likes: sumMetric(items, "likes"),
+          engagementRate: rate,
+        };
       })
       .filter((item) => item.posts > 0);
   }, [filtered]);
 
   const timeSeriesRows = useMemo(() => {
-    const daily = new Map<string, { views: number; interactions: number; posts: number; dateMs: number }>();
+    const daily = new Map<string, { views: MetricSum; completeViews: number; interactions: number; completePosts: number; dateMs: number }>();
     for (const row of filtered) {
       const date = new Date(row.publishedAt);
       const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
       const dateKey = dateOnly.toISOString().slice(0, 10);
-      const current = daily.get(dateKey) ?? { views: 0, interactions: 0, posts: 0, dateMs: dateOnly.getTime() };
-      const views = clampInt(row.views);
-      const interactions = clampInt(row.likes) + clampInt(row.comments) + clampInt(row.shares);
-      current.views += views;
-      current.interactions += interactions;
-      current.posts += 1;
+      const current = daily.get(dateKey) ?? {
+        views: { total: 0, known: 0 },
+        completeViews: 0,
+        interactions: 0,
+        completePosts: 0,
+        dateMs: dateOnly.getTime(),
+      };
+      if (row.views != null) {
+        current.views = { total: current.views.total + clampInt(row.views), known: current.views.known + 1 };
+      }
+      if (hasAllMetrics(row)) {
+        current.completeViews += clampInt(row.views ?? 0);
+        current.interactions += clampInt(row.likes ?? 0) + clampInt(row.comments ?? 0) + clampInt(row.shares ?? 0);
+        current.completePosts += 1;
+      }
       daily.set(dateKey, current);
     }
     return [...daily.entries()]
@@ -259,8 +347,9 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
       .map(([dateKey, value]) => ({
         dateKey,
         label: shortDate(dateKey),
-        views: value.views,
-        engagementRatePct: value.views > 0 ? (value.interactions / value.views) * 100 : 0,
+        views: value.views.known > 0 ? value.views.total : null,
+        engagementRatePct:
+          value.completePosts === 0 ? null : value.completeViews > 0 ? (value.interactions / value.completeViews) * 100 : 0,
       }));
   }, [filtered]);
 
@@ -268,16 +357,17 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
     () =>
       platformRows.map((row) => ({
         platform: platformLabel(row.platform),
-        views: row.views,
-        engagementRatePct: Number((row.engagementRate * 100).toFixed(2)),
+        views: row.views.known > 0 ? row.views.total : null,
+        engagementRatePct: row.engagementRate == null ? null : Number((row.engagementRate * 100).toFixed(2)),
       })),
     [platformRows],
   );
 
   const topPostsChartRows = useMemo(
     () =>
-      [...filtered]
-        .sort((a, b) => b.views - a.views)
+      filtered
+        .filter((row) => row.views != null)
+        .sort((a, b) => compareNullableDesc(a.views, b.views))
         .slice(0, 5)
         .map((row) => ({
           id: row.id,
@@ -288,33 +378,34 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
   );
 
   const postDetails = useMemo(() => {
-    const totalPosts = filtered.length;
-    if (totalPosts === 0) return [];
+    if (filtered.length === 0) return [];
 
-    const avgViews = totals.totalViews / totalPosts;
-    const avgLikes = totals.totalLikes / totalPosts;
-    const avgComments = totals.totalComments / totalPosts;
-    const avgShares = totals.totalShares / totalPosts;
-    const avgEngagement = totals.avgEngagementRate;
+    const complete = filtered.filter(hasAllMetrics);
+    const completeCount = complete.length;
+    const avgViews = averageOf(totals.views);
+    const avgLikes = averageOf(totals.likes);
+    const avgComments = averageOf(totals.comments);
+    const avgShares = averageOf(totals.shares);
+    const avgEngagement = totals.avgEngagementRate ?? 0;
 
-    const maxViews = Math.max(...filtered.map((row) => clampInt(row.views)), 1);
-    const maxEngagement = Math.max(...filtered.map((row) => engagementRate(row)), 0.0001);
+    const maxViews = Math.max(...complete.map((row) => clampInt(row.views ?? 0)), 1);
+    const maxEngagement = Math.max(...complete.map((row) => engagementRate(row) ?? 0), 0.0001);
 
     const scoreById = new Map(
-      filtered.map((row) => {
-        const normalizedViews = clampInt(row.views) / maxViews;
-        const normalizedEngagement = engagementRate(row) / maxEngagement;
+      complete.map((row) => {
+        const normalizedViews = clampInt(row.views ?? 0) / maxViews;
+        const normalizedEngagement = (engagementRate(row) ?? 0) / maxEngagement;
         const score = normalizedEngagement * 0.55 + normalizedViews * 0.45;
         return [row.id, score] as const;
       }),
     );
 
-    const rankedIds = [...filtered]
+    const rankedIds = [...complete]
       .sort((a, b) => (scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0))
       .map((row) => row.id);
 
-    const engagementRankedIds = [...filtered]
-      .sort((a, b) => engagementRate(b) - engagementRate(a))
+    const engagementRankedIds = [...complete]
+      .sort((a, b) => compareNullableDesc(engagementRate(a), engagementRate(b)))
       .map((row) => row.id);
 
     const rankMap = new Map(rankedIds.map((id, idx) => [id, idx]));
@@ -322,16 +413,27 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
 
     return filtered.map((row) => {
       const rowEngagementRate = engagementRate(row);
-      const rankIndex = rankMap.get(row.id) ?? totalPosts - 1;
-      const engagementRankIndex = engagementRankMap.get(row.id) ?? totalPosts - 1;
-      const percentile = totalPosts === 1 ? 1 : 1 - rankIndex / (totalPosts - 1);
-      const engagementPercentile = totalPosts === 1 ? 1 : 1 - engagementRankIndex / (totalPosts - 1);
+      if (rowEngagementRate == null) {
+        return {
+          ...row,
+          rowEngagementRate,
+          badge: null,
+          rank: null,
+          viewsDeltaPct: null,
+          engagementDeltaPct: null,
+          bestMetric: null,
+        };
+      }
+      const rankIndex = rankMap.get(row.id) ?? completeCount - 1;
+      const engagementRankIndex = engagementRankMap.get(row.id) ?? completeCount - 1;
+      const percentile = completeCount === 1 ? 1 : 1 - rankIndex / (completeCount - 1);
+      const engagementPercentile = completeCount === 1 ? 1 : 1 - engagementRankIndex / (completeCount - 1);
 
       const metricDeltas: Record<MetricKey, number> = {
-        views: toPercentDelta(clampInt(row.views), avgViews),
-        likes: toPercentDelta(clampInt(row.likes), avgLikes),
-        comments: toPercentDelta(clampInt(row.comments), avgComments),
-        shares: toPercentDelta(clampInt(row.shares), avgShares),
+        views: toPercentDelta(clampInt(row.views ?? 0), avgViews),
+        likes: toPercentDelta(clampInt(row.likes ?? 0), avgLikes),
+        comments: toPercentDelta(clampInt(row.comments ?? 0), avgComments),
+        shares: toPercentDelta(clampInt(row.shares ?? 0), avgShares),
         engagement: toPercentDelta(rowEngagementRate, avgEngagement),
       };
 
@@ -361,26 +463,31 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
       return ["No published posts found for this date range yet."];
     }
 
-    const topByEngagement = platformRows.reduce<(typeof platformRows)[number] | null>(
-      (best, row) => {
-        if (!best) return row;
-        return row.engagementRate > best.engagementRate ? row : best;
-      },
-      null,
-    );
+    const postCountLine = `You published ${totals.totalPosts.toLocaleString()} posts in this period.`;
+    if (!hasAnyMetrics) {
+      return [postCountLine, "Engagement insights appear once the platform reports metrics for these posts."];
+    }
 
-    const topByViews = platformRows.reduce<(typeof platformRows)[number] | null>(
-      (best, row) => {
-        if (!best) return row;
-        return row.views > best.views ? row : best;
-      },
-      null,
-    );
+    const topByEngagement = platformRows
+      .filter((row) => row.engagementRate != null)
+      .reduce<(typeof platformRows)[number] | null>(
+        (best, row) => (!best || (row.engagementRate ?? 0) > (best.engagementRate ?? 0) ? row : best),
+        null,
+      );
 
-    const bestPost = filtered.reduce<AnalyticsRow | null>((best, row) => {
-      if (!best) return row;
-      return row.views > best.views ? row : best;
-    }, null);
+    const topByViews = platformRows
+      .filter((row) => row.views.known > 0)
+      .reduce<(typeof platformRows)[number] | null>(
+        (best, row) => (!best || row.views.total > best.views.total ? row : best),
+        null,
+      );
+
+    const bestPost = filtered
+      .filter((row) => row.views != null)
+      .reduce<AnalyticsRow | null>(
+        (best, row) => (!best || (row.views ?? 0) > (best.views ?? 0) ? row : best),
+        null,
+      );
 
     const lines: string[] = [];
     if (topByEngagement) {
@@ -390,15 +497,24 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
       lines.push(`${platformLabel(topByViews.platform)} has the most views in this range.`);
     }
     if (bestPost) {
-      lines.push(`Your top post reached ${clampInt(bestPost.views).toLocaleString()} views.`);
+      lines.push(`Your top post reached ${formatMetric(bestPost.views)} views.`);
     }
-    lines.push(`You published ${totals.totalPosts.toLocaleString()} posts in this period.`);
-    lines.push(`Average engagement rate is ${percent(totals.avgEngagementRate)}.`);
+    lines.push(postCountLine);
+    if (totals.avgEngagementRate != null) {
+      lines.push(`Average engagement rate is ${percent(totals.avgEngagementRate)}.`);
+    }
     return lines;
-  }, [filtered, platformRows, totals.totalPosts, totals.avgEngagementRate]);
+  }, [filtered, hasAnyMetrics, platformRows, totals.totalPosts, totals.avgEngagementRate]);
+
+  const kpiHint = (sum: MetricSum): string | undefined => {
+    if (sum.known === 0) return totals.totalPosts > 0 ? "Not available yet" : undefined;
+    if (sum.known < totals.totalPosts) return `From ${sum.known.toLocaleString()} of ${totals.totalPosts.toLocaleString()} posts`;
+    return undefined;
+  };
 
   const handleSaveTemplate = useCallback(async (scheduledPostId: string) => {
     setTemplateNotice(null);
+    setSavedTemplateId(null);
     setSavingTemplateId(scheduledPostId);
     const result = await saveReusableTemplateFromScheduledPostId(scheduledPostId);
     if (result.error) {
@@ -406,20 +522,21 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
       setSavingTemplateId(null);
       return;
     }
+    setSavedTemplateId(result.template?.id ?? null);
     setTemplateNotice(`Template saved: ${result.template?.name ?? "Reusable template"}`);
     setSavingTemplateId(null);
   }, []);
 
   return (
     <section aria-label="Analytics dashboard panels" className="space-y-6">
-      <fieldset className="flex flex-wrap gap-2">
+      <fieldset className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <legend className="sr-only">Analytics filters</legend>
         <input
           type="search"
           value={query}
           onChange={(e) => updateQuery({ q: e.target.value })}
           placeholder="Search preview or post ID"
-          className="min-w-[220px] rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500"
+          className="w-full min-w-0 rounded-md sm:w-auto sm:min-w-[220px] sm:flex-1 border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500"
           aria-label="Search analytics posts"
         />
         <select
@@ -470,44 +587,32 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
       </p>
       {rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-200 bg-white p-4 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
-          Analytics appears after your first published posts. After scheduled time, it can take a short moment for server publishing results to appear.
-          <div className="mt-2 flex flex-wrap gap-2">
+          Analytics appears after your first published posts.
+          <div className="mt-2 flex flex-wrap items-center gap-3">
             <Link
               href="/create"
               className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
             >
-              Create first post
+              Create post
             </Link>
-            <Link
-              href="/scheduled"
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              Schedule a post
-            </Link>
-            <Link
-              href="/history"
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              Check History
+            <Link href="/scheduled" className="text-xs font-medium text-zinc-700 underline underline-offset-2 dark:text-zinc-300">
+              View scheduled posts
             </Link>
           </div>
         </div>
       ) : null}
       {!hasAdvancedAnalytics ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-          <p>Free plan: advanced analytics (longer ranges, insights, and charts) are available on Pro.</p>
+          <p>{plan.label} plan: advanced analytics (longer ranges, insights, and charts) are available on Pro.</p>
           <Link href="/upgrade" className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-            Upgrade to Pro
+            Upgrade
           </Link>
         </div>
       ) : null}
 
-      {usesFallbackMetrics ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-          <p>Some metrics are estimated because provider data is partially unavailable.</p>
-          <Link href="/history" className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-            Check History
-          </Link>
+      {missingMetricsNotice ? (
+        <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+          <p>{missingMetricsNotice}</p>
         </div>
       ) : null}
       {templateNotice ? (
@@ -517,9 +622,17 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
           aria-live="polite"
         >
           <p>{templateNotice}</p>
+          {savedTemplateId ? (
+            <Link
+              href={`/create?templateId=${encodeURIComponent(savedTemplateId)}`}
+              className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100"
+            >
+              Use template
+            </Link>
+          ) : null}
           {templateNotice.toLowerCase().includes("limit") ? (
             <Link href="/upgrade" className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-              Upgrade to Pro
+              Upgrade
             </Link>
           ) : null}
         </div>
@@ -542,18 +655,24 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
 
       <section aria-label="Analytics key metrics" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard label="Total posts" value={totals.totalPosts} />
-        <KpiCard label="Total views" value={totals.totalViews} />
-        <KpiCard label="Total likes" value={totals.totalLikes} />
-        <KpiCard label="Total comments" value={totals.totalComments} />
-        <KpiCard label="Total shares" value={totals.totalShares} />
-        <KpiCard label="Average engagement rate" value={percent(totals.avgEngagementRate)} />
+        <KpiCard label="Total views" value={formatSum(totals.views)} hint={kpiHint(totals.views)} />
+        <KpiCard label="Total likes" value={formatSum(totals.likes)} hint={kpiHint(totals.likes)} />
+        <KpiCard label="Total comments" value={formatSum(totals.comments)} hint={kpiHint(totals.comments)} />
+        <KpiCard label="Total shares" value={formatSum(totals.shares)} hint={kpiHint(totals.shares)} />
+        <KpiCard
+          label="Average engagement rate"
+          value={formatRate(totals.avgEngagementRate)}
+          hint={kpiHint({ total: 0, known: totals.completePosts })}
+        />
       </section>
 
       {hasAdvancedAnalytics ? (
       <section aria-labelledby="analytics-performance-time-heading" className="space-y-2">
         <h2 id="analytics-performance-time-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Performance over time</h2>
-        {timeSeriesRows.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">No trend data for this date range.</p>
+        {timeSeriesRows.length === 0 || !hasAnyMetrics ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {timeSeriesRows.length === 0 ? "No trend data for this date range." : "No engagement metrics reported for this date range yet."}
+          </p>
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="h-72 w-full">
@@ -566,6 +685,7 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                   <Tooltip
                     formatter={(value, name) => {
                       const metricName = typeof name === "string" ? name : String(name ?? "");
+                      if (value == null) return ["—", metricName];
                       const numericValue = toNumericValue(value);
                       return metricName === "Engagement"
                         ? [`${numericValue.toFixed(2)}%`, metricName]
@@ -595,8 +715,12 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
       {hasAdvancedAnalytics ? (
       <section aria-labelledby="analytics-platform-comparison-heading" className="space-y-2">
         <h2 id="analytics-platform-comparison-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Platform comparison</h2>
-        {platformChartRows.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">No platform comparison data for this date range.</p>
+        {platformChartRows.length === 0 || !hasAnyMetrics ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {platformChartRows.length === 0
+              ? "No platform comparison data for this date range."
+              : "No engagement metrics reported for this date range yet."}
+          </p>
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="h-72 w-full">
@@ -609,6 +733,7 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                   <Tooltip
                     formatter={(value, name) => {
                       const metricName = typeof name === "string" ? name : String(name ?? "");
+                      if (value == null) return ["—", metricName];
                       const numericValue = toNumericValue(value);
                       return metricName === "Engagement"
                         ? [`${numericValue.toFixed(2)}%`, metricName]
@@ -636,7 +761,9 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
       <section aria-labelledby="analytics-top-posts-heading" className="space-y-2">
         <h2 id="analytics-top-posts-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Top posts by views</h2>
         {topPostsChartRows.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">No post data for this date range.</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {filtered.length === 0 ? "No post data for this date range." : "No view counts reported for this date range yet."}
+          </p>
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="h-72 w-full">
@@ -681,9 +808,9 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                       {platformLabel(row.platform)}
                     </th>
                     <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{row.posts}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{row.views}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{row.likes}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{percent(row.engagementRate)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatSum(row.views)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatSum(row.likes)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatRate(row.engagementRate)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -729,7 +856,7 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                 ? "No published posts match your search and filters."
                 : "No published posts found for this date range."}
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => updateQuery({ range: DEFAULT_RANGE, sort: DEFAULT_SORT, platform: "all", q: "" })}
@@ -737,16 +864,7 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
               >
                 Reset filters
               </button>
-              <Link
-                href="/scheduled"
-                className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                Open Scheduled queue
-              </Link>
-              <Link
-                href="/history"
-                className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
+              <Link href="/history" className="text-xs font-medium text-zinc-700 underline underline-offset-2 dark:text-zinc-300">
                 Check History
               </Link>
             </div>
@@ -783,22 +901,25 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                     <td className="px-3 py-2 whitespace-nowrap text-zinc-700 dark:text-zinc-300">{formatAt(row.publishedAt)}</td>
                     <td className="max-w-[360px] px-3 py-2 text-zinc-700 dark:text-zinc-300">
                       <span className="sr-only">
-                        Summary: {platformLabel(row.platform)} post with {row.views.toLocaleString()} views, {row.likes.toLocaleString()} likes, {row.comments.toLocaleString()} comments, {row.shares.toLocaleString()} shares, and {percent(row.rowEngagementRate)} engagement.
+                        Summary: {platformLabel(row.platform)} post with {spokenMetric(row.views, "views")}, {spokenMetric(row.likes, "likes")}, {spokenMetric(row.comments, "comments")}, {spokenMetric(row.shares, "shares")}, and {row.rowEngagementRate == null ? "engagement not available" : `${percent(row.rowEngagementRate)} engagement`}.
                       </span>
                       {row.preview}
                     </td>
                     <td className={`px-3 py-2 text-right tabular-nums ${hasAdvancedAnalytics && row.bestMetric?.key === "views" ? "font-semibold text-violet-700 dark:text-violet-300" : "text-zinc-700 dark:text-zinc-300"}`}>
-                      {row.views}
+                      {formatMetric(row.views)}
                     </td>
                     <td className={`px-3 py-2 text-right tabular-nums ${hasAdvancedAnalytics && row.bestMetric?.key === "likes" ? "font-semibold text-violet-700 dark:text-violet-300" : "text-zinc-700 dark:text-zinc-300"}`}>
-                      {row.likes}
+                      {formatMetric(row.likes)}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{row.comments}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{row.shares}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatMetric(row.comments)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatMetric(row.shares)}</td>
                     <td className={`px-3 py-2 text-right tabular-nums ${hasAdvancedAnalytics && row.bestMetric?.key === "engagement" ? "font-semibold text-violet-700 dark:text-violet-300" : "text-zinc-700 dark:text-zinc-300"}`}>
-                      {percent(row.rowEngagementRate)}
+                      {formatRate(row.rowEngagementRate)}
                     </td>
                     {hasAdvancedAnalytics ? <td className="px-3 py-2">
+                      {row.badge == null ? (
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">—</span>
+                      ) : (
                       <span
                         className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                           row.badge === "high"
@@ -811,15 +932,26 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                       >
                         {row.badge}
                       </span>
+                      )}
                     </td> : null}
-                    {hasAdvancedAnalytics ? <td className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300">{row.rank}</td> : null}
+                    {hasAdvancedAnalytics ? <td className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300">{row.rank ?? "—"}</td> : null}
                     {hasAdvancedAnalytics ? <td className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300">
-                      {row.bestMetric ? `${row.bestMetric.key} (+${row.bestMetric.delta.toFixed(0)}%)` : "None"}
+                      {row.rowEngagementRate == null
+                        ? "—"
+                        : row.bestMetric
+                          ? `${row.bestMetric.key} (+${row.bestMetric.delta.toFixed(0)}%)`
+                          : "None"}
                     </td> : null}
                     {hasAdvancedAnalytics ? <td className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300">
-                      {formatDeltaSentence(row.viewsDeltaPct, "views")}
-                      <br />
-                      {formatDeltaSentence(row.engagementDeltaPct, "engagement")}
+                      {row.viewsDeltaPct == null || row.engagementDeltaPct == null ? (
+                        "—"
+                      ) : (
+                        <>
+                          {formatDeltaSentence(row.viewsDeltaPct, "views")}
+                          <br />
+                          {formatDeltaSentence(row.engagementDeltaPct, "engagement")}
+                        </>
+                      )}
                     </td> : null}
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1.5">
@@ -829,7 +961,7 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                           disabled={savingTemplateId === row.id}
                           className="promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
                         >
-                          {savingTemplateId === row.id ? "Saving..." : "Save template"}
+                          {savingTemplateId === row.id ? "Saving…" : "Save template"}
                         </button>
                         <Link
                           href={`/create?sourcePostId=${encodeURIComponent(row.id)}&mode=duplicate`}
@@ -858,14 +990,14 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                 className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
               >
                 <p className="sr-only">
-                  Post summary: {platformLabel(row.platform)} published {formatAt(row.publishedAt)} with {row.views.toLocaleString()} views, {row.likes.toLocaleString()} likes, {row.comments.toLocaleString()} comments, {row.shares.toLocaleString()} shares, and {percent(row.rowEngagementRate)} engagement.
+                  Post summary: {platformLabel(row.platform)} published {formatAt(row.publishedAt)} with {spokenMetric(row.views, "views")}, {spokenMetric(row.likes, "likes")}, {spokenMetric(row.comments, "comments")}, {spokenMetric(row.shares, "shares")}, and {row.rowEngagementRate == null ? "engagement not available" : `${percent(row.rowEngagementRate)} engagement`}.
                 </p>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{platformLabel(row.platform)}</p>
                     <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{formatAt(row.publishedAt)}</p>
                   </div>
-                  {hasAdvancedAnalytics ? <span
+                  {hasAdvancedAnalytics && row.badge != null ? <span
                     className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                       row.badge === "high"
                         ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
@@ -882,21 +1014,21 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                 <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">{clampPreview(row.preview, 150)}</p>
 
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <p className={`rounded-md border p-2 ${row.bestMetric?.key === "views" ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300" : "border-zinc-200 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"}`}>Views: <span className="tabular-nums">{row.views}</span></p>
-                  <p className={`rounded-md border p-2 ${row.bestMetric?.key === "likes" ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300" : "border-zinc-200 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"}`}>Likes: <span className="tabular-nums">{row.likes}</span></p>
-                  <p className="rounded-md border border-zinc-200 p-2 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Comments: <span className="tabular-nums">{row.comments}</span></p>
-                  <p className="rounded-md border border-zinc-200 p-2 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Shares: <span className="tabular-nums">{row.shares}</span></p>
+                  <p className={`rounded-md border p-2 ${row.bestMetric?.key === "views" ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300" : "border-zinc-200 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"}`}>Views: <span className="tabular-nums">{formatMetric(row.views)}</span></p>
+                  <p className={`rounded-md border p-2 ${row.bestMetric?.key === "likes" ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300" : "border-zinc-200 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"}`}>Likes: <span className="tabular-nums">{formatMetric(row.likes)}</span></p>
+                  <p className="rounded-md border border-zinc-200 p-2 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Comments: <span className="tabular-nums">{formatMetric(row.comments)}</span></p>
+                  <p className="rounded-md border border-zinc-200 p-2 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Shares: <span className="tabular-nums">{formatMetric(row.shares)}</span></p>
                 </div>
 
                 <p className={`mt-2 text-xs ${hasAdvancedAnalytics && row.bestMetric?.key === "engagement" ? "font-semibold text-violet-700 dark:text-violet-300" : "text-zinc-700 dark:text-zinc-300"}`}>
-                  Engagement rate: {percent(row.rowEngagementRate)}
+                  Engagement rate: {row.rowEngagementRate == null ? "Not available yet" : percent(row.rowEngagementRate)}
                 </p>
-                {hasAdvancedAnalytics ? <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Ranking: {row.rank}</p> : null}
-                {hasAdvancedAnalytics ? <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                {hasAdvancedAnalytics && row.rank != null ? <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Ranking: {row.rank}</p> : null}
+                {hasAdvancedAnalytics && row.rowEngagementRate != null ? <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                   {row.bestMetric ? `Best metric: ${row.bestMetric.key} (+${row.bestMetric.delta.toFixed(0)}%)` : "Best metric: None"}
                 </p> : null}
-                {hasAdvancedAnalytics ? <p className="mt-2 text-xs text-zinc-700 dark:text-zinc-300">{formatDeltaSentence(row.viewsDeltaPct, "views")}</p> : null}
-                {hasAdvancedAnalytics ? <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">
+                {hasAdvancedAnalytics && row.viewsDeltaPct != null ? <p className="mt-2 text-xs text-zinc-700 dark:text-zinc-300">{formatDeltaSentence(row.viewsDeltaPct, "views")}</p> : null}
+                {hasAdvancedAnalytics && row.engagementDeltaPct != null ? <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">
                   {formatDeltaSentence(row.engagementDeltaPct, "engagement")}
                 </p> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -906,7 +1038,7 @@ export function AnalyticsDashboard({ rows, usesFallbackMetrics, planTier }: Anal
                     disabled={savingTemplateId === row.id}
                     className="promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
                   >
-                    {savingTemplateId === row.id ? "Saving..." : "Save template"}
+                    {savingTemplateId === row.id ? "Saving…" : "Save template"}
                   </button>
                   <Link
                     href={`/create?sourcePostId=${encodeURIComponent(row.id)}&mode=duplicate`}

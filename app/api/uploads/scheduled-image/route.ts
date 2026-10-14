@@ -1,10 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-errors";
 import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { getMediaStorageMode, storeScheduledImage } from "@/src/lib/media/image-storage";
 import {
   ALLOWED_IMAGE_EXTENSIONS,
   IMAGE_UPLOAD_MAX_BYTES,
@@ -16,10 +14,19 @@ import { consumeRateLimit, RATE_LIMITS } from "@/src/lib/rate-limit/server";
 
 export const runtime = "nodejs";
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "scheduled-images");
+const STORAGE_UNAVAILABLE_MESSAGE = "Image uploads aren't available right now. Remove the image to continue without it.";
 
 function allowedExtensionsLabel() {
   return Array.from(ALLOWED_IMAGE_EXTENSIONS).join(", ");
+}
+
+function storageUnavailable(details?: string) {
+  return apiError({
+    status: 503,
+    code: "IMAGE_STORAGE_UNAVAILABLE",
+    message: STORAGE_UNAVAILABLE_MESSAGE,
+    details,
+  });
 }
 
 export async function POST(request: Request) {
@@ -57,7 +64,13 @@ export async function POST(request: Request) {
   const gate = await checkOwnerAccountGates(ownerId, { requireVerifiedEmail: true });
   if (gate) return accountGateApiError(gate);
 
-  console.info("[api/uploads/scheduled-image]", { ownerPrefix: ownerId.slice(0, 6) });
+  const storageMode = getMediaStorageMode();
+  if (storageMode === "unavailable") {
+    console.warn("[api/uploads/scheduled-image] durable image storage is not configured; returning 503.");
+    return storageUnavailable();
+  }
+
+  console.info("[api/uploads/scheduled-image]", { ownerPrefix: ownerId.slice(0, 6), storageMode });
 
   let form: FormData;
   try {
@@ -72,7 +85,8 @@ export async function POST(request: Request) {
   }
 
   const image = fileValue;
-  if (!isAllowedImageByName(image.name) || !isAllowedImageMime(image.type)) {
+  const ext = extensionFromName(image.name);
+  if (!ext || !isAllowedImageByName(image.name) || !isAllowedImageMime(image.type)) {
     return apiError({
       status: 400,
       code: "INVALID_IMAGE_TYPE",
@@ -90,31 +104,25 @@ export async function POST(request: Request) {
     });
   }
 
-  try {
-    const ext = extensionFromName(image.name) ?? "jpg";
-    const filename = `${randomUUID()}.${ext}`;
-    const absolutePath = path.join(UPLOAD_DIR, filename);
-    await mkdir(UPLOAD_DIR, { recursive: true });
-    const bytes = await image.arrayBuffer();
-    await writeFile(absolutePath, Buffer.from(bytes));
-
-    return NextResponse.json(
-      {
-        data: {
-          imageUrl: `/uploads/scheduled-images/${filename}`,
-          mimeType: image.type,
-          size: image.size,
-        },
-      },
-      { status: 201 },
-    );
-  } catch (err) {
-    const details = err instanceof Error ? err.message : String(err);
+  const stored = await storeScheduledImage(ownerId, image, ext);
+  if (!stored.ok) {
+    console.error("[api/uploads/scheduled-image] store failed:", { reason: stored.reason, details: stored.details });
+    if (stored.reason === "unavailable") return storageUnavailable();
     return apiError({
       status: 500,
       code: "IMAGE_UPLOAD_FAILED",
       message: "Could not upload image.",
-      details,
     });
   }
+
+  return NextResponse.json(
+    {
+      data: {
+        imageUrl: stored.imageUrl,
+        mimeType: image.type,
+        size: image.size,
+      },
+    },
+    { status: 201 },
+  );
 }

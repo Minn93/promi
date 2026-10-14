@@ -143,6 +143,16 @@ export function SettingsPageContent({ ownerId: _ownerId, signedInEmail, planTier
                   ? "..."
                   : `${row.used} / ${limitLabel(row.limit)} used`}
               </p>
+              {row.label === "Reusable templates" ? (
+                <p className="mt-1">
+                  <Link
+                    href="/create"
+                    className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100"
+                  >
+                    Manage on Create
+                  </Link>
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

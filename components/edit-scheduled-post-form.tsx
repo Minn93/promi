@@ -196,7 +196,7 @@ export function EditScheduledPostForm({ post }: EditScheduledPostFormProps) {
           disabled={saving}
           className="promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
         >
-          {saving ? "Saving..." : "Save changes"}
+          {saving ? "Saving…" : "Save changes"}
         </button>
         <Link
           href="/scheduled"

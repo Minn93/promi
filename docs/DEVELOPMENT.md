@@ -276,7 +276,7 @@ Equivalent: `npm run entitlement:manage -- --action=audit --ownerId=<owner> [--l
 These routes **must** resolve the current owner via **`getCurrentOwnerId()`** before expensive or mutating work:
 
 - **`POST /api/generate`** — OpenAI-backed; **`401`** `{ "error": "authentication_required" }` if owner cannot be resolved.
-- **`POST /api/uploads/scheduled-image`** — writes under `public/uploads/scheduled-image`; **`401`** with **`apiError`** if unauthenticated.
+- **`POST /api/uploads/scheduled-image`** — stores to Vercel Blob when configured, otherwise (development only) under `public/uploads/scheduled-images/<owner-key>/`; production without Blob returns **`503`** `IMAGE_STORAGE_UNAVAILABLE`; **`401`** with **`apiError`** if unauthenticated. See **`docs/PHASE15_2C_IMAGE_STORAGE.md`**.
 
 **Internal beta** (`PROMI_INTERNAL_BETA_MODE=1`): owner resolves to **`PROMI_INTERNAL_BETA_OWNER_ID`** (or default) **without** a session — same behavior as other owner-scoped APIs, so existing internal flows keep working.
 
@@ -390,7 +390,19 @@ This runs config validation, owner-id integrity validation, and production build
 
 ## Optional — scheduler (due posts)
 
-Production: `POST` or `GET` `/api/jobs/process-due-scheduled-posts` with header:
+### Cost-safety: automatic polling is off
+
+**Automatic Vercel Cron polling is intentionally disabled** during active development so idle Neon compute is not woken every minute. `vercel.json` has **no** `crons` key.
+
+Scheduled publishing still works when you **manually** invoke the job route. Do not restore a one-minute cron without a deliberate product decision.
+
+**Never restore `* * * * *` without a deliberate product decision.** That schedule previously exhausted Neon compute quota by querying the database every minute even with no due posts.
+
+**User-facing timing copy matches this configuration.** With no cron, the UI says posts are sent "when Promi's publishing job runs, which can be later than the scheduled time" and never promises exact-minute or "within 15 minutes" delivery. The shared strings live in `lib/publishing-timing-copy.ts`; related status text is in `lib/post-status-copy.ts` (scheduled/overdue), and the Scheduled/History page descriptions and History empty state carry the same wording. **When beta automatic scheduling is re-enabled, update these strings in the same change** (for example, "usually within about 15 minutes of the scheduled time").
+
+### Manual invocation (local)
+
+Production-style (also works against a deployed app): `POST` or `GET` `/api/jobs/process-due-scheduled-posts` with header:
 
 `Authorization: Bearer <CRON_SECRET>`
 
@@ -398,19 +410,43 @@ Production: `POST` or `GET` `/api/jobs/process-due-scheduled-posts` with header:
 |----------|---------|
 | `CRON_SECRET` | Shared secret for scheduler requests (required in production for the job route). |
 
-**Local bypass (never enable in production):**
+**Local bypass / auto-disable (never enable these in production):**
 
 | Variable | Purpose |
 |----------|---------|
 | `ALLOW_UNAUTH_SCHEDULER_DEV=1` | Only when `NODE_ENV !== "production"`, allows calling the scheduler **without** `Authorization`. Use in `.env.local` only. |
+| `DISABLE_AUTO_SCHEDULER_DEV=1` | Only when `NODE_ENV !== "production"`, non-manual scheduler calls return early without hitting the DB. Use with `?manual=1` or header `x-promi-manual-scheduler: 1` for real local runs. |
 
 Example (PowerShell):
 
 ```powershell
+# With ALLOW_UNAUTH_SCHEDULER_DEV=1 (no Authorization header):
 Invoke-WebRequest -Method POST "http://localhost:3000/api/jobs/process-due-scheduled-posts?limit=20"
+
+# If DISABLE_AUTO_SCHEDULER_DEV=1, force a real run:
+Invoke-WebRequest -Method POST "http://localhost:3000/api/jobs/process-due-scheduled-posts?limit=20&manual=1"
 ```
 
 With bypass: no header. Without bypass: `Authorization: Bearer $env:CRON_SECRET`.
+
+### Future beta: re-enable 15-minute polling
+
+When unattended publishing is needed again and Neon quota is healthy, add this to `vercel.json` and redeploy (UI should keep promising “around scheduled time,” not exact minute):
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/jobs/process-due-scheduled-posts",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
+```
+
+Confirm in the Vercel Cron Jobs UI that the cadence is **every 15 minutes**, not every minute.
+
+In the same change, update `lib/publishing-timing-copy.ts`, `lib/post-status-copy.ts`, and the Scheduled/History page descriptions (see "User-facing timing copy" above).
 
 ## Optional — X OAuth + publish
 
@@ -428,7 +464,11 @@ Scheduled publish (`publishPost`) will **refresh the X access token** using the 
 - **`X_REAL_PUBLISHING` unset or not `1`:** X posts use the mock publisher path (simulated success; message notes that real publish is disabled).
 - **`X_REAL_PUBLISHING=1`:** Validates OAuth client config, rejects mock-style accounts/tokens, and uses the user’s stored access token to `POST /2/tweets`.
 
-Instagram/Facebook OAuth env vars exist for stubs; real publish for those platforms is still mock-only (see `TODO(4차-publish)` in `src/lib/platforms/index.ts`).
+Instagram/Facebook OAuth env vars exist for stubs; real publish for those platforms is still mock-only (see `TODO(4차-publish)` in `src/lib/platforms/index.ts`). The UI labels them "test only, not posted" and rewrites mock publish messages as "Test publish — not posted to …" (`lib/publish-platform-copy.ts`). Create defaults to X.
+
+### X post text
+
+The text sent to X is built by `composePublishText` in `src/lib/services/posts/publish-text.ts`: Instagram caption, Pinterest title, and Pinterest description joined with single spaces. **Hashtags are not included.** The Create page's "This is what will be posted to X" preview calls the same function, so any change to X text composition must happen there to keep the preview truthful.
 
 ## Optional — debugging DB wiring
 

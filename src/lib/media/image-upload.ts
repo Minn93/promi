@@ -1,4 +1,5 @@
-export const IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024; // 5MB
+/** Kept below Vercel's 4.5MB function request-body limit (multipart overhead included). */
+export const IMAGE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024; // 4MB
 
 export const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/jpeg",
@@ -7,6 +8,31 @@ export const ALLOWED_IMAGE_MIME_TYPES = new Set([
 ]);
 
 export const ALLOWED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+
+/** Local-disk uploads (development only). */
+export const LOCAL_UPLOAD_URL_PREFIX = "/uploads/scheduled-images/";
+/** Pathname prefix of uploads inside the Vercel Blob store. */
+export const BLOB_UPLOAD_PATH_PREFIX = "scheduled-images/";
+const BLOB_PUBLIC_HOST_SUFFIX = ".public.blob.vercel-storage.com";
+
+/**
+ * True when the URL has the shape of an image uploaded through Promi (local dev or Vercel Blob).
+ * UI hint only (previews, "will be attached" copy). The server pins the Blob host and checks ownership.
+ */
+export function isUploadedScheduledImageUrl(url: string | null | undefined): boolean {
+  const value = url?.trim() ?? "";
+  if (value.startsWith(LOCAL_UPLOAD_URL_PREFIX)) return true;
+  try {
+    const parsed = new URL(value);
+    return (
+      parsed.protocol === "https:"
+      && parsed.hostname.endsWith(BLOB_PUBLIC_HOST_SUFFIX)
+      && parsed.pathname.startsWith(`/${BLOB_UPLOAD_PATH_PREFIX}`)
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function extensionFromName(name: string): string | null {
   const dot = name.lastIndexOf(".");

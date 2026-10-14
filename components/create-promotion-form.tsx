@@ -2,9 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PreviewCard } from "@/components/preview-card";
+import { getProductById, isSampleCatalogImageUrl, mockProducts } from "@/lib/mock-data";
 import { readPromotions, upsertPromotion } from "@/lib/promotions-storage";
+import { isTestOnlyPlatform, publishPlatformOptionLabel } from "@/lib/publish-platform-copy";
+import { PUBLISHING_TIMING_NOTE } from "@/lib/publishing-timing-copy";
+import { composePublishText } from "@/src/lib/services/posts/publish-text";
 import {
   readReusablePostTemplates,
   removeReusablePostTemplate,
@@ -18,6 +22,7 @@ import {
   IMAGE_UPLOAD_MAX_BYTES,
   isAllowedImageByName,
   isAllowedImageMime,
+  isUploadedScheduledImageUrl,
 } from "@/src/lib/media/image-upload";
 import { toUserFacingError } from "@/lib/user-facing-error";
 
@@ -27,8 +32,8 @@ const usd = new Intl.NumberFormat("en-US", {
 });
 
 const CHANNELS = [
-  { id: "instagram" as const, label: "Instagram" },
-  { id: "pinterest" as const, label: "Pinterest" },
+  { id: "instagram" as const, label: "Instagram caption" },
+  { id: "pinterest" as const, label: "Pinterest title & description" },
 ];
 
 const TONES = [
@@ -88,16 +93,158 @@ type ScheduledSuccess = {
   platform: PublishPlatform;
 };
 
+/**
+ * What was last scheduled. The image is tracked separately because after success the selected file is cleared and
+ * replaced by its uploaded URL, so the same image can be represented either way.
+ */
+type ScheduledFingerprint = {
+  content: string;
+  imageKeys: string[];
+};
+
+function fileImageKey(file: File): string {
+  return `file:${file.name}:${file.size}:${file.lastModified}`;
+}
+
+type ImageUploadResult = { ok: true; data: UploadedImageMeta } | { ok: false; message: string };
+
+async function uploadScheduledImage(file: File): Promise<ImageUploadResult> {
+  const formData = new FormData();
+  formData.set("image", file);
+  const uploadRes = await fetch("/api/uploads/scheduled-image", {
+    method: "POST",
+    body: formData,
+  });
+  const uploadBody = (await uploadRes.json().catch(() => null)) as { data?: UploadedImageMeta; error?: string; details?: string } | null;
+  if (!uploadRes.ok || !uploadBody?.data?.imageUrl) {
+    return { ok: false, message: uploadBody?.error || uploadBody?.details || "Could not upload image." };
+  }
+  return { ok: true, data: uploadBody.data };
+}
+
+const DRAFT_IMAGE_UPLOAD_FAILED =
+  "We couldn't upload your image, so the draft wasn't saved. Try again, or remove the image to save without it.";
+
 function buildXPostText(copy: PromotionCopy): string {
-  return [
-    copy.instagramCaption.trim(),
-    copy.pinterestTitle.trim(),
-    copy.pinterestDescription.trim(),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return composePublishText(copy);
+}
+
+function generateErrorMessage(status: number, code: string | undefined): string {
+  if (status === 401 || code === "authentication_required") {
+    return "Your session has expired. Sign in again, then generate your post.";
+  }
+  if (status === 429 || code === "too_many_requests") {
+    return "You've generated several posts in a short time. Wait a minute, then try again.";
+  }
+  if (code === "email_verification_required") {
+    return "Verify your email address to generate posts. Check your inbox for the verification email, or contact Promi support if you can't find it.";
+  }
+  if (code === "account_unavailable") {
+    return "This account can't generate posts right now. Contact Promi support.";
+  }
+  if (status === 503 || code === "service_unavailable") {
+    return "Post generation is temporarily unavailable. Try again in a few minutes.";
+  }
+  if (status === 400) {
+    return "Something was missing from this request. Reload the page and try again.";
+  }
+  return "We couldn't generate a post right now. Please try again.";
+}
+
+const BRIEF_LIMITS = { name: 80, description: 600, price: 40, url: 300 } as const;
+
+/** The editable "What are you promoting?" fields. */
+type Brief = { name: string; description: string; price: string; url: string };
+type BriefErrors = Partial<Record<keyof Brief, string>>;
+
+const EMPTY_BRIEF: Brief = { name: "", description: "", price: "", url: "" };
+
+/** What the post promotes: a sample product, a user-entered brief, or a brief restored from a draft or earlier post. */
+type PromotionSubject = {
+  kind: "catalog" | "custom" | "reused";
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  image: string | null;
+  url: string | null;
+};
+
+/** Identity carried over from a sample product, saved draft, or source post; kept while the name is unchanged. */
+type SubjectBase = { kind: "catalog" | "reused"; id: string; name: string; image: string | null };
+
+function normalizeText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** FNV-1a (32-bit). */
+function hashString(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/** Name and description together, so different campaigns that share a name get different ids. */
+function customSubjectId(name: string, description: string): string {
+  return `custom-${hashString(`${normalizeText(name)}\n${normalizeText(description)}`)}`;
+}
+
+function catalogProductUrl(product: Product): string {
+  return product.productUrl && product.productUrl !== "#" ? product.productUrl : "";
+}
+
+function briefFromProduct(product: Product): Brief {
+  return {
+    name: product.name,
+    description: product.description,
+    price: usd.format(product.price),
+    url: catalogProductUrl(product),
+  };
+}
+
+function catalogBase(product: Product): SubjectBase {
+  return { kind: "catalog", id: product.id, name: product.name, image: product.image };
+}
+
+function deriveSubject(brief: Brief, base: SubjectBase | null): PromotionSubject {
+  const name = brief.name.trim();
+  const description = brief.description.trim();
+  const shared = { name, description, price: brief.price.trim(), url: brief.url.trim() || null };
+  if (base && normalizeText(base.name) === normalizeText(name)) {
+    return { ...shared, kind: base.kind, id: base.id, image: base.image };
+  }
+  return { ...shared, kind: "custom", id: customSubjectId(name, description), image: null };
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function validateBrief(brief: Brief): BriefErrors {
+  const errors: BriefErrors = {};
+  const name = brief.name.trim();
+  if (!name) errors.name = "Add a product or campaign name.";
+  else if (name.length > BRIEF_LIMITS.name) errors.name = `Keep the name to ${BRIEF_LIMITS.name} characters or fewer.`;
+  const description = brief.description.trim();
+  if (!description) errors.description = "Add a few details so Promi can write your post.";
+  else if (description.length > BRIEF_LIMITS.description) {
+    errors.description = `Keep the details to ${BRIEF_LIMITS.description} characters or fewer.`;
+  }
+  if (brief.price.trim().length > BRIEF_LIMITS.price) {
+    errors.price = `Keep the price or offer to ${BRIEF_LIMITS.price} characters or fewer.`;
+  }
+  const url = brief.url.trim();
+  if (url.length > BRIEF_LIMITS.url) errors.url = `Keep the link to ${BRIEF_LIMITS.url} characters or fewer.`;
+  else if (url && !isHttpUrl(url)) errors.url = "Enter a full link that starts with http:// or https://.";
+  return errors;
 }
 
 function formatBytes(bytes: number): string {
@@ -135,19 +282,6 @@ function resolveAngleId(value: unknown): (typeof ANGLES)[number]["id"] | null {
   if (byId) return byId.id;
   const byLabel = ANGLES.find((item) => item.label.toLowerCase() === raw);
   return byLabel?.id ?? null;
-}
-
-function fallbackSourceProduct(source: ScheduledPostSource): Product {
-  return {
-    id: source.productId,
-    name: source.productName,
-    image: source.imageUrl || "/images/linen-tote-bag1.jpg",
-    description: "Reused from a previously scheduled or published post.",
-    price: 0,
-    stockStatus: "in_stock",
-    tags: ["reused-post"],
-    productUrl: "#",
-  };
 }
 
 function platformLabel(platform: PublishPlatform): string {
@@ -215,7 +349,9 @@ function InlineSpinner() {
 }
 
 function buildPromotionPayload(
-  product: Product,
+  subject: PromotionSubject,
+  /** Uploaded image URL, sample image, or null. Never file data. */
+  image: string | null,
   toneLabel: string,
   angleLabel: string,
   channelIds: string[],
@@ -225,10 +361,14 @@ function buildPromotionPayload(
 ): Promotion {
   return {
     id: existingId ?? crypto.randomUUID(),
-    productId: product.id,
-    productName: product.name,
-    productImage: product.image,
-    imageRefs: [product.image],
+    productId: subject.id,
+    productName: subject.name,
+    productImage: image ?? "",
+    imageRefs: image ? [image] : [],
+    source: subject.kind === "catalog" ? "catalog" : "custom",
+    productDescription: subject.description,
+    productPrice: subject.price,
+    productUrl: subject.url ?? "",
     channels: channelIds,
     tone: toneLabel,
     angle: angleLabel,
@@ -242,8 +382,9 @@ function buildPromotionPayload(
 }
 
 type CreatePromotionFormProps = {
+  /** Sample product used to prefill the brief; null when the user enters their own. */
   product: Product | null;
-  /** True when `productId` was in the URL but did not match any mock product. */
+  /** True when `productId` was in the URL but did not match any sample product. */
   invalidProductId?: boolean;
   /** When set, load this saved promotion from localStorage and pre-fill the form. */
   promotionId?: string;
@@ -265,6 +406,10 @@ export function CreatePromotionForm({
 }: CreatePromotionFormProps) {
   const generateInFlightRef = useRef(false);
   const persistInFlightRef = useRef(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [brief, setBrief] = useState<Brief>(() => (product ? briefFromProduct(product) : EMPTY_BRIEF));
+  const [subjectBase, setSubjectBase] = useState<SubjectBase | null>(() => (product ? catalogBase(product) : null));
+  const [showUnknownProductNotice, setShowUnknownProductNotice] = useState(Boolean(invalidProductId));
   const [channels, setChannels] = useState<Record<ChannelId, boolean>>({
     instagram: true,
     pinterest: true,
@@ -292,9 +437,12 @@ export function CreatePromotionForm({
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
-  const [publishPlatform, setPublishPlatform] = useState<PublishPlatform>("instagram");
+  const [publishPlatform, setPublishPlatform] = useState<PublishPlatform>("x");
   const [accountId, setAccountId] = useState("");
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [scheduledFingerprint, setScheduledFingerprint] = useState<ScheduledFingerprint | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(promotionId?.trim() || null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [selectedImagePreviewUrl, setSelectedImagePreviewUrl] = useState<string | null>(null);
@@ -311,7 +459,15 @@ export function CreatePromotionForm({
   const [activeScheduledCount, setActiveScheduledCount] = useState<number | null>(null);
   const [scheduleErrorCode, setScheduleErrorCode] = useState<string | null>(null);
   const [scheduledSuccess, setScheduledSuccess] = useState<ScheduledSuccess | null>(null);
-  const effectiveProduct = product ?? (sourcePrefill ? fallbackSourceProduct(sourcePrefill) : null);
+  const subject = deriveSubject(brief, subjectBase);
+  const briefErrors = validateBrief(brief);
+  const briefReadyForGenerate = Object.keys(briefErrors).length === 0;
+  /** Description is only required to generate; saving or scheduling existing copy needs just a valid name. */
+  const briefSaveError =
+    briefErrors.name
+    ?? briefErrors.price
+    ?? briefErrors.url
+    ?? (brief.description.trim() ? briefErrors.description : undefined);
   const planTier = getClientPlanTier();
   const plan = getPlanConfig(planTier);
   const templateLimitReached = templates.length >= plan.limits.reusableTemplates;
@@ -359,7 +515,7 @@ export function CreatePromotionForm({
     setScheduleTime("");
     setGenerateError(null);
     setScheduleError(null);
-    if (template.imageUrl) {
+    if (template.imageUrl && isUploadedScheduledImageUrl(template.imageUrl)) {
       setUploadedImage({
         imageUrl: template.imageUrl,
         mimeType: "image/*",
@@ -425,9 +581,34 @@ export function CreatePromotionForm({
   }, [sourcePostId]);
 
   useEffect(() => {
-    if (!product || !promotionId?.trim()) return;
-    const saved = readPromotions().items.find((p) => p.id === promotionId.trim());
-    if (!saved || saved.productId !== product.id) return;
+    const id = promotionId?.trim();
+    if (!id) return;
+    const saved = readPromotions().items.find((p) => p.id === id);
+    if (!saved) return;
+    setDraftId(saved.id);
+
+    // Drafts saved before 15.2B have no brief fields; sample-product drafts fall back to the catalog entry.
+    const sample = getProductById(saved.productId) ?? null;
+    setSubjectBase(
+      sample
+        ? catalogBase(sample)
+        : {
+            kind: "reused",
+            id: saved.productId,
+            name: saved.productName,
+            image: isSampleCatalogImageUrl(saved.productImage) ? saved.productImage : null,
+          },
+    );
+    setBrief({
+      name: saved.productName,
+      description: saved.productDescription ?? sample?.description ?? "",
+      price: saved.productPrice ?? (sample ? usd.format(sample.price) : ""),
+      url: saved.productUrl ?? (sample ? catalogProductUrl(sample) : ""),
+    });
+    setShowUnknownProductNotice(false);
+    if (isUploadedScheduledImageUrl(saved.productImage)) {
+      setUploadedImage({ imageUrl: saved.productImage, mimeType: "image/*", size: 0 });
+    }
 
     const nextChannels: Record<ChannelId, boolean> = {
       instagram: saved.channels.includes("instagram"),
@@ -455,12 +636,31 @@ export function CreatePromotionForm({
     const { date, time } = splitLocalDateTime(saved.scheduledAt);
     setScheduleDate(date);
     setScheduleTime(time);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate when product id or promotion id changes; avoid re-running on new product object identity
-  }, [product?.id, promotionId]);
+  }, [promotionId]);
 
   useEffect(() => {
     if (!sourcePrefill) return;
     const payload = asObject(sourcePrefill.contentPayload) ?? {};
+
+    const sourceBrief = asObject(payload.brief);
+    const sample = getProductById(sourcePrefill.productId) ?? null;
+    setSubjectBase(
+      sample
+        ? catalogBase(sample)
+        : {
+            kind: "reused",
+            id: sourcePrefill.productId,
+            name: sourcePrefill.productName,
+            image: isSampleCatalogImageUrl(sourcePrefill.imageUrl) ? sourcePrefill.imageUrl : null,
+          },
+    );
+    setBrief({
+      name: sourcePrefill.productName,
+      description: readString(sourceBrief?.description).trim() || sample?.description || "",
+      price: readString(sourceBrief?.price).trim() || (sample ? usd.format(sample.price) : ""),
+      url: readString(sourceBrief?.url).trim() || (sample ? catalogProductUrl(sample) : ""),
+    });
+    setShowUnknownProductNotice(false);
 
     const nextCopy: PromotionCopy = {
       instagramCaption: readString(payload.instagramCaption).trim(),
@@ -501,7 +701,7 @@ export function CreatePromotionForm({
         : "Duplicate mode: copied content and platform. Update anything before saving or scheduling.",
     );
 
-    if (sourcePrefill.imageUrl?.trim()) {
+    if (sourcePrefill.imageUrl && isUploadedScheduledImageUrl(sourcePrefill.imageUrl)) {
       setUploadedImage({
         imageUrl: sourcePrefill.imageUrl,
         mimeType: "image/*",
@@ -534,19 +734,31 @@ export function CreatePromotionForm({
     applyTemplate(match);
   }, [templateId, templates]);
 
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const res = await fetch("/api/connected-accounts", { cache: "no-store" });
-        const body = (await res.json().catch(() => null)) as { data?: ConnectedAccount[] } | null;
-        if (!res.ok) return;
-        setConnectedAccounts(Array.isArray(body?.data) ? body.data : []);
-      } catch {
-        // optional; mock publish still works without account selection
-      }
-    };
-    void run();
+  const loadConnectedAccounts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/connected-accounts", { cache: "no-store" });
+      const body = (await res.json().catch(() => null)) as { data?: ConnectedAccount[] } | null;
+      if (!res.ok) return;
+      setConnectedAccounts(Array.isArray(body?.data) ? body.data : []);
+      setAccountsLoaded(true);
+    } catch {
+      // Guidance only; scheduling does not depend on this list.
+    }
   }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => void loadConnectedAccounts(), 0);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadConnectedAccounts();
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadConnectedAccounts]);
 
   useEffect(() => {
     const run = async () => {
@@ -568,11 +780,15 @@ export function CreatePromotionForm({
   };
 
   const handleGenerate = async () => {
-    if (!effectiveProduct || generateInFlightRef.current || persistInFlightRef.current) return;
+    if (generateInFlightRef.current || persistInFlightRef.current) return;
+    if (!briefReadyForGenerate) {
+      setGenerateError("Add a name and a few details under What are you promoting?, then generate.");
+      return;
+    }
 
     const selectedChannels = CHANNELS.filter(({ id }) => channels[id]).map(({ id }) => id);
     if (selectedChannels.length === 0) {
-      setGenerateError("Select at least one channel, then generate content.");
+      setGenerateError("Select at least one copy format, then generate content.");
       return;
     }
 
@@ -590,9 +806,9 @@ export function CreatePromotionForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productName: effectiveProduct.name,
-          productDescription: effectiveProduct.description,
-          productPrice: effectiveProduct.price,
+          productName: subject.name,
+          productDescription: subject.description,
+          productPrice: subject.price || "Not specified",
           tone: toneLabel,
           promotionAngle: angleLabel,
           selectedChannels,
@@ -608,11 +824,7 @@ export function CreatePromotionForm({
 
       if (!res.ok) {
         const errBody = data as { error?: string } | null;
-        setGenerateError(
-          typeof errBody?.error === "string"
-            ? errBody.error
-            : "We could not generate content right now. Please try again.",
-        );
+        setGenerateError(generateErrorMessage(res.status, typeof errBody?.error === "string" ? errBody.error : undefined));
         return;
       }
 
@@ -638,22 +850,23 @@ export function CreatePromotionForm({
     }
   };
 
-  const persistDraft = (scheduledAt: string | null) => {
-    if (!effectiveProduct) return;
+  const persistDraft = (scheduledAt: string | null, image: string | null) => {
     const channelIds = CHANNELS.filter(({ id }) => channels[id]).map(({ id }) => id);
     const tl = TONES.find((t) => t.id === tone)?.label ?? tone;
     const al = ANGLES.find((a) => a.id === angle)?.label ?? angle;
     const record = buildPromotionPayload(
-      effectiveProduct,
+      subject,
+      image,
       tl,
       al,
       channelIds,
       copyRef.current,
       scheduledAt,
-      promotionId?.trim(),
+      draftId ?? undefined,
     );
     try {
       upsertPromotion(record);
+      setDraftId(record.id);
       setScheduleError(null);
       setSaveNotice("Draft saved on this device.");
     } catch {
@@ -664,34 +877,102 @@ export function CreatePromotionForm({
     }
   };
 
-  const handleSaveDraft = () => {
-    if (!effectiveProduct || persistKind || isGenerating || persistInFlightRef.current) return;
+  const handleSaveDraft = async () => {
+    if (persistKind || isGenerating || persistInFlightRef.current) return;
     setSaveNotice(null);
     setScheduledSuccess(null);
     setGenerateError(null);
     setScheduleErrorCode(null);
+    if (briefSaveError) {
+      setScheduleError(`${briefSaveError} (See What are you promoting?)`);
+      return;
+    }
     setScheduleError(null);
     setPersistKind("draft");
     persistInFlightRef.current = true;
-    queueMicrotask(() => {
-      try {
-        const scheduledAt = combineLocalDateTime(scheduleDate, scheduleTime);
-        persistDraft(scheduledAt);
-      } finally {
-        persistInFlightRef.current = false;
-        window.setTimeout(() => setPersistKind(null), 220);
+    try {
+      let image = uploadedImage?.imageUrl ?? subject.image ?? null;
+      if (selectedImage) {
+        let upload: ImageUploadResult;
+        try {
+          upload = await uploadScheduledImage(selectedImage);
+        } catch {
+          upload = { ok: false, message: DRAFT_IMAGE_UPLOAD_FAILED };
+        }
+        if (!upload.ok) {
+          setScheduleError(DRAFT_IMAGE_UPLOAD_FAILED);
+          return;
+        }
+        setUploadedImage(upload.data);
+        setSelectedImage(null);
+        if (imageInputRef.current) imageInputRef.current.value = "";
+        image = upload.data.imageUrl;
       }
+      persistDraft(combineLocalDateTime(scheduleDate, scheduleTime), image);
+    } finally {
+      persistInFlightRef.current = false;
+      window.setTimeout(() => setPersistKind(null), 220);
+    }
+  };
+
+  const currentScheduleSignature = () =>
+    JSON.stringify({
+      instagramCaption: copyRef.current.instagramCaption,
+      pinterestTitle: copyRef.current.pinterestTitle,
+      pinterestDescription: copyRef.current.pinterestDescription,
+      hashtags: copyRef.current.hashtags,
+      scheduleDate,
+      scheduleTime,
+      publishPlatform,
+      accountId,
     });
+
+  const currentImageKey = () =>
+    selectedImage ? fileImageKey(selectedImage) : `url:${uploadedImage?.imageUrl ?? subject.image ?? ""}`;
+
+  const matchesScheduledFingerprint = () =>
+    scheduledFingerprint !== null
+    && scheduledFingerprint.content === currentScheduleSignature()
+    && scheduledFingerprint.imageKeys.includes(currentImageKey());
+
+  const handleStartAnother = () => {
+    const empty: PromotionCopy = { instagramCaption: "", pinterestTitle: "", pinterestDescription: "", hashtags: "" };
+    copyRef.current = empty;
+    setInstagramCaption("");
+    setPinterestTitle("");
+    setPinterestDescription("");
+    setHashtags("");
+    setScheduleDate("");
+    setScheduleTime("");
+    setSelectedImage(null);
+    setUploadedImage(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+    setScheduledSuccess(null);
+    setScheduledFingerprint(null);
+    setSaveNotice(null);
+    setScheduleError(null);
+    setScheduleErrorCode(null);
+    setGenerateError(null);
+    setTemplateNotice(null);
+    setDraftId(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleSchedulePromotion = async () => {
-    if (!effectiveProduct || persistKind || isGenerating || persistInFlightRef.current) {
+    if (persistKind || isGenerating || persistInFlightRef.current) {
       return;
     }
+    if (matchesScheduledFingerprint()) return;
+    const contentSignature = currentScheduleSignature();
+    const submittedImageKey = currentImageKey();
     setSaveNotice(null);
     setScheduledSuccess(null);
     setGenerateError(null);
     setScheduleErrorCode(null);
+    if (briefSaveError) {
+      setScheduleError(`${briefSaveError} (See What are you promoting?)`);
+      return;
+    }
     if (!scheduleDate.trim() || !scheduleTime.trim()) {
       setScheduleError("Choose a date and time before scheduling.");
       return;
@@ -720,21 +1001,17 @@ export function CreatePromotionForm({
     const al = ANGLES.find((a) => a.id === angle)?.label ?? angle;
 
     try {
-      let imageUrl = effectiveProduct.image;
+      let imageUrl: string | null = subject.image;
       if (selectedImage) {
-        const formData = new FormData();
-        formData.set("image", selectedImage);
-        const uploadRes = await fetch("/api/uploads/scheduled-image", {
-          method: "POST",
-          body: formData,
-        });
-        const uploadBody = (await uploadRes.json().catch(() => null)) as { data?: UploadedImageMeta; error?: string; details?: string } | null;
-        if (!uploadRes.ok || !uploadBody?.data?.imageUrl) {
-          setScheduleError(uploadBody?.error || uploadBody?.details || "Could not upload image.");
+        const upload = await uploadScheduledImage(selectedImage);
+        if (!upload.ok) {
+          setScheduleError(upload.message);
           return;
         }
-        setUploadedImage(uploadBody.data);
-        imageUrl = uploadBody.data.imageUrl;
+        setUploadedImage(upload.data);
+        setSelectedImage(null);
+        if (imageInputRef.current) imageInputRef.current.value = "";
+        imageUrl = upload.data.imageUrl;
       } else if (uploadedImage?.imageUrl) {
         imageUrl = uploadedImage.imageUrl;
       }
@@ -743,8 +1020,8 @@ export function CreatePromotionForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productId: effectiveProduct.id,
-          productName: effectiveProduct.name,
+          productId: subject.id,
+          productName: subject.name,
           imageUrl,
           channels: selectedChannels,
           contentPayload: {
@@ -754,6 +1031,12 @@ export function CreatePromotionForm({
             pinterestTitle: copyRef.current.pinterestTitle,
             pinterestDescription: copyRef.current.pinterestDescription,
             hashtags: copyRef.current.hashtags,
+            brief: {
+              description: subject.description,
+              price: subject.price,
+              url: subject.url ?? "",
+              source: subject.kind === "catalog" ? "catalog" : "custom",
+            },
           },
           scheduledAt,
           platform: publishPlatform,
@@ -769,8 +1052,8 @@ export function CreatePromotionForm({
         return;
       }
       const scheduledLabel = new Date(scheduledAt).toLocaleString();
-      setSaveNotice(`Scheduled for ${scheduledLabel} on ${platformLabel(publishPlatform)}.`);
       setScheduledSuccess({ when: scheduledLabel, platform: publishPlatform });
+      setScheduledFingerprint({ content: contentSignature, imageKeys: [submittedImageKey, `url:${imageUrl ?? ""}`] });
       setScheduleErrorCode(null);
       setActiveScheduledCount((prev) => (typeof prev === "number" ? prev + 1 : prev));
       setSelectedImage(null);
@@ -804,6 +1087,13 @@ export function CreatePromotionForm({
     setUploadedImage(null);
   };
 
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
+    setUploadedImage(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+    setScheduleError(null);
+  };
+
   const handleSaveTemplate = () => {
     const hasContent =
       Boolean(copyRef.current.instagramCaption.trim())
@@ -827,7 +1117,7 @@ export function CreatePromotionForm({
         pinterestTitle: copyRef.current.pinterestTitle.trim(),
         pinterestDescription: copyRef.current.pinterestDescription.trim(),
         hashtags: copyRef.current.hashtags.trim(),
-        imageUrl: uploadedImage?.imageUrl ?? effectiveProduct?.image ?? null,
+        imageUrl: uploadedImage?.imageUrl ?? subject.image ?? null,
       });
       setTemplateError(null);
       setTemplateNotice(`Saved reusable template: ${saved.name}`);
@@ -862,51 +1152,52 @@ export function CreatePromotionForm({
   const accountsForPlatform = connectedAccounts.filter(
     (acc) => acc.platform === publishPlatform && acc.status === "active",
   );
-  const xTextLength = buildXPostText(copyRef.current).length;
+  const xPostText = buildXPostText(copyRef.current);
+  const xTextLength = xPostText.length;
   const isXOverLimit = xTextLength > X_MAX_TEXT_LENGTH;
   const scheduleErrorDetails = scheduleError ? toUserFacingError(scheduleErrorCode, scheduleError) : null;
   const channelDescribedBy = !hasSelectedChannel ? "promi-channels-help promi-channels-error" : "promi-channels-help";
-  const accountDescribedBy = accountsForPlatform.length === 0 ? "promi-connected-account-help" : undefined;
+  const testOnlyPlatform = isTestOnlyPlatform(publishPlatform);
+  // "revoked" is what a user-initiated disconnect writes, so only expired/error mean the connection needs repair.
+  const xNeedsReconnect = connectedAccounts.some(
+    (acc) => acc.platform === "x" && (acc.status === "expired" || acc.status === "error"),
+  );
+  const showXConnectWarning = publishPlatform === "x" && accountsLoaded && accountsForPlatform.length === 0;
+  const hashtagsExcludedFromX = publishPlatform === "x" && Boolean(hashtags.trim());
+  const alreadyScheduled = matchesScheduledFingerprint();
+  const scheduledImageUrl = uploadedImage?.imageUrl ?? subject.image ?? null;
+  const xImageWillAttach = Boolean(selectedImage) || isUploadedScheduledImageUrl(scheduledImageUrl);
+  const uploadedPreviewImage = isUploadedScheduledImageUrl(uploadedImage?.imageUrl) ? uploadedImage?.imageUrl ?? null : null;
+  const previewImage = uploadedPreviewImage ?? subject.image;
+  const previewImageAlt = subject.name || "Post image";
+  const briefFieldError = (field: keyof Brief): string | undefined => {
+    if (field === "name" || field === "description") return brief[field].trim() ? briefErrors[field] : undefined;
+    return briefErrors[field];
+  };
 
-  if (invalidProductId && !sourcePostId) {
+  const updateBrief = (field: keyof Brief, value: string) => {
+    setBrief((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSelectSample = (sample: Product) => {
+    const current = deriveSubject(brief, subjectBase);
+    const hasOwnDetails =
+      current.kind !== "catalog" && Boolean(brief.name.trim() || brief.description.trim() || brief.price.trim() || brief.url.trim());
+    if (hasOwnDetails && !window.confirm("Replace your product details with this sample product?")) return;
+    setSubjectBase(catalogBase(sample));
+    setBrief(briefFromProduct(sample));
+    setShowUnknownProductNotice(false);
+    const url = new URL(window.location.href);
+    url.searchParams.set("productId", sample.id);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  };
+
+  if (sourcePostId && !sourcePrefill && !sourcePrefillError) {
     return (
-      <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-950">
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          We couldn&apos;t find that product. Go back to{" "}
-          <Link href="/products" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
-            Products
-          </Link>{" "}
-          and click <span className="font-medium">Create post</span> again.
+      <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+        <p className="text-center text-sm text-zinc-600 dark:text-zinc-400" role="status" aria-live="polite">
+          {sourcePrefillLoading ? "Loading source post details…" : "Loading…"}
         </p>
-      </div>
-    );
-  }
-
-  if (!effectiveProduct) {
-    return (
-      <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-950">
-        {sourcePrefillLoading ? (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400" role="status" aria-live="polite">
-            Loading source post details...
-          </p>
-        ) : sourcePrefillError ? (
-          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-            {sourcePrefillError}
-          </p>
-        ) : (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            No product selected yet. Open{" "}
-            <Link href="/products" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
-              Products
-            </Link>{" "}
-            and click <span className="font-medium">Create post</span> on a product to continue.
-            {" "}You can also start from suggested products on the{" "}
-            <Link href="/" className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-50">
-              Home page
-            </Link>
-            .
-          </p>
-        )}
       </div>
     );
   }
@@ -914,48 +1205,147 @@ export function CreatePromotionForm({
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-10 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-8">
-        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 sm:p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-            <div className="relative mx-auto aspect-square w-28 shrink-0 overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800 sm:mx-0">
-              <Image
-                src={effectiveProduct.image}
-                alt={effectiveProduct.name}
-                fill
-                className="object-cover"
-                sizes="112px"
+        <section
+          aria-labelledby="promi-brief-heading"
+          className="space-y-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 sm:p-5"
+        >
+          <div>
+            <h2 id="promi-brief-heading" className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+              What are you promoting?
+            </h2>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Give Promi the key facts. It uses them to write your post; they aren&apos;t posted as-is.
+            </p>
+          </div>
+          {showUnknownProductNotice ? (
+            <p
+              role="status"
+              className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+            >
+              We couldn&apos;t find that sample product. Enter your own details below, or start from a sample.
+            </p>
+          ) : null}
+          {subject.kind === "catalog" && subject.image ? (
+            <div className="flex items-center gap-3">
+              <span className="relative aspect-square w-12 shrink-0 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800">
+                <Image src={subject.image} alt="" fill className="object-cover" sizes="48px" />
+              </span>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Using the sample product &ldquo;{subject.name}&rdquo;. Edit anything below to make it your own.
+              </p>
+            </div>
+          ) : null}
+          <div className="space-y-1">
+            <label htmlFor="promi-brief-name" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              Product or campaign name
+            </label>
+            <input
+              id="promi-brief-name"
+              type="text"
+              value={brief.name}
+              onChange={(e) => updateBrief("name", e.target.value)}
+              maxLength={BRIEF_LIMITS.name}
+              placeholder="For example: Hand-poured soy candle, or Spring weekend sale"
+              aria-invalid={Boolean(briefFieldError("name"))}
+              aria-describedby={briefFieldError("name") ? "promi-brief-name-error" : undefined}
+              className={TEXT_FIELD_BASE}
+            />
+            {briefFieldError("name") ? (
+              <p id="promi-brief-name-error" className="text-xs text-red-600 dark:text-red-400">{briefFieldError("name")}</p>
+            ) : null}
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="promi-brief-description" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              What should people know?
+            </label>
+            <textarea
+              id="promi-brief-description"
+              rows={4}
+              value={brief.description}
+              onChange={(e) => updateBrief("description", e.target.value)}
+              maxLength={BRIEF_LIMITS.description}
+              placeholder="What it is, who it's for, what makes it different, and any offer or dates. For example: Small-batch soy candles with a 40-hour burn. Made for cozy evenings at home. 15% off this weekend."
+              aria-invalid={Boolean(briefFieldError("description"))}
+              aria-describedby="promi-brief-description-count"
+              className={`min-h-[100px] ${TEXT_FIELD_BASE}`}
+            />
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              {briefFieldError("description") ? (
+                <p className="text-xs text-red-600 dark:text-red-400">{briefFieldError("description")}</p>
+              ) : (
+                <span />
+              )}
+              <p id="promi-brief-description-count" className="text-xs text-zinc-500 dark:text-zinc-400">
+                {brief.description.length}/{BRIEF_LIMITS.description}
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label htmlFor="promi-brief-price" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Price or offer (optional)
+              </label>
+              <input
+                id="promi-brief-price"
+                type="text"
+                value={brief.price}
+                onChange={(e) => updateBrief("price", e.target.value)}
+                maxLength={BRIEF_LIMITS.price}
+                placeholder="$24, or 20% off this weekend"
+                aria-invalid={Boolean(briefFieldError("price"))}
+                className={TEXT_FIELD_BASE}
               />
+              {briefFieldError("price") ? (
+                <p className="text-xs text-red-600 dark:text-red-400">{briefFieldError("price")}</p>
+              ) : null}
             </div>
-            <div className="min-w-0 flex-1 space-y-2 text-center sm:text-left">
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">{effectiveProduct.name}</h2>
-              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                {usd.format(effectiveProduct.price)}
+            <div className="space-y-1">
+              <label htmlFor="promi-brief-url" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Link (optional)
+              </label>
+              <input
+                id="promi-brief-url"
+                type="url"
+                inputMode="url"
+                value={brief.url}
+                onChange={(e) => updateBrief("url", e.target.value)}
+                maxLength={BRIEF_LIMITS.url}
+                placeholder="https://yourshop.com/product"
+                aria-invalid={Boolean(briefFieldError("url"))}
+                aria-describedby="promi-brief-url-help"
+                className={TEXT_FIELD_BASE}
+              />
+              <p id="promi-brief-url-help" className={`text-xs ${briefFieldError("url") ? "text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"}`}>
+                {briefFieldError("url") ?? "Saved with your post details. It isn't added to your post automatically."}
               </p>
-              <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                {effectiveProduct.description}
-              </p>
-              <div className="space-y-1">
-                {effectiveProduct.productUrl !== "#" ? (
-                  <>
-                    <a
-                      href={effectiveProduct.productUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-medium text-zinc-900 underline underline-offset-2 hover:text-zinc-700 dark:text-zinc-100 dark:hover:text-zinc-300"
-                    >
-                      View this product in your store
-                    </a>
-                    <p
-                      className="break-all text-left text-xs text-zinc-500 dark:text-zinc-400"
-                      title={effectiveProduct.productUrl}
-                    >
-                      {effectiveProduct.productUrl}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">Storefront URL is not available for this reused post.</p>
-                )}
-              </div>
             </div>
+          </div>
+          <div className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Or start from a sample product</p>
+            <ul className="flex flex-wrap gap-2">
+              {mockProducts.map((item) => {
+                const selected = subject.kind === "catalog" && subject.id === item.id;
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectSample(item)}
+                      aria-pressed={selected}
+                      className={`flex items-center gap-2 rounded-lg border py-1 pl-1 pr-2.5 text-xs transition-[border-color,background-color] duration-200 ${BUTTON_FOCUS} ${
+                        selected
+                          ? "border-zinc-900 bg-zinc-50 text-zinc-900 dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-50"
+                          : "border-zinc-200 text-zinc-700 hover:border-zinc-300 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600"
+                      }`}
+                    >
+                      <span className="relative aspect-square w-7 shrink-0 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+                        <Image src={item.image} alt="" fill className="object-cover" sizes="28px" />
+                      </span>
+                      {item.name}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         </section>
 
@@ -965,12 +1355,99 @@ export function CreatePromotionForm({
           </p>
         ) : null}
 
+        <section aria-labelledby="promi-publish-to-heading" className="space-y-3">
+          <div>
+            <h3 id="promi-publish-to-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              Publish to
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">Where this post goes when you schedule it.</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="space-y-1">
+              <label htmlFor="promi-publish-platform" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Platform
+              </label>
+              <select
+                id="promi-publish-platform"
+                value={publishPlatform}
+                onChange={(e) => {
+                  setPublishPlatform(e.target.value as PublishPlatform);
+                  setAccountId("");
+                }}
+                aria-describedby={testOnlyPlatform ? "promi-test-platform-note" : undefined}
+                className={DATE_TIME_FIELD}
+              >
+                <option value="x">{publishPlatformOptionLabel("x")}</option>
+                <option value="instagram">{publishPlatformOptionLabel("instagram")}</option>
+                <option value="facebook">{publishPlatformOptionLabel("facebook")}</option>
+              </select>
+            </div>
+            {!testOnlyPlatform && accountsForPlatform.length > 0 ? (
+              <div className="space-y-1">
+                <label htmlFor="promi-connected-account" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  Publishing account
+                </label>
+                <select
+                  id="promi-connected-account"
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  className={DATE_TIME_FIELD}
+                >
+                  <option value="">Most recently connected {platformLabel(publishPlatform)} account</option>
+                  {accountsForPlatform.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.displayName ?? acc.externalAccountId ?? acc.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
+          {testOnlyPlatform ? (
+            <p
+              id="promi-test-platform-note"
+              className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            >
+              {platformLabel(publishPlatform)} is test only during the beta. Scheduling runs a test publish and nothing is
+              posted to {platformLabel(publishPlatform)}. Choose X to publish for real.
+            </p>
+          ) : null}
+          {showXConnectWarning ? (
+            <div
+              role="status"
+              className="space-y-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/30"
+            >
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                {xNeedsReconnect ? "Your X account needs to be reconnected" : "No X account connected"}
+              </p>
+              <p className="text-xs text-amber-800 dark:text-amber-200">
+                {xNeedsReconnect
+                  ? "Reconnect your X account to publish this post."
+                  : "Connect an X account to publish this post."}{" "}
+                You can keep writing and scheduling, but Promi can&apos;t post to X until an active X account is
+                connected. This opens in a new tab so your work here stays put.
+              </p>
+              <a
+                href="/api/oauth/x/start"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={BTN_SECONDARY}
+              >
+                {xNeedsReconnect ? "Reconnect X" : "Connect X"}
+              </a>
+            </div>
+          ) : null}
+        </section>
+
         <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
           <div className="flex items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Reusable templates</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Plan: {plan.label} · Templates: {templates.length}/{limitLabel(plan.limits.reusableTemplates)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Templates are saved in this browser on this device.
               </p>
             </div>
             <button
@@ -1044,9 +1521,10 @@ export function CreatePromotionForm({
         </section>
 
         <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Channels</h3>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Copy formats to generate</h3>
           <p id="promi-channels-help" className="text-xs text-zinc-500 dark:text-zinc-400">
-            Where you plan to publish this promotion.
+            Which kinds of copy Promi writes for you. This doesn&apos;t change where the post is published. That&apos;s set
+            under Publish to.
           </p>
           <div className="flex flex-wrap gap-2">
             {CHANNELS.map(({ id, label }) => (
@@ -1129,7 +1607,7 @@ export function CreatePromotionForm({
           <button
             type="button"
             onClick={() => void handleGenerate()}
-              disabled={isGenerating || persistKind !== null || !hasSelectedChannel}
+            disabled={isGenerating || persistKind !== null || !hasSelectedChannel || !briefReadyForGenerate}
             aria-busy={isGenerating}
             className={BTN_PRIMARY}
           >
@@ -1147,7 +1625,14 @@ export function CreatePromotionForm({
           </p>
           {!hasSelectedChannel ? (
             <p id="promi-channels-error" className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              Select at least one channel to generate content.
+              Select at least one copy format to generate content.
+            </p>
+          ) : null}
+          {!briefReadyForGenerate ? (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {briefErrors.name || briefErrors.description
+                ? "Add a name and a few details under What are you promoting? to generate."
+                : "Fix the highlighted details under What are you promoting? to generate."}
             </p>
           ) : null}
           {generateSuccess ? (
@@ -1179,15 +1664,6 @@ export function CreatePromotionForm({
               placeholder="Generate content, then edit your Instagram caption here."
               className={`mt-1.5 min-h-[110px] ${TEXT_FIELD_BASE}`}
             />
-            {publishPlatform === "x" ? (
-              <p
-                className={`mt-1 text-xs ${isXOverLimit ? "font-medium text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"}`}
-                role={isXOverLimit ? "alert" : undefined}
-              >
-                X character count: {xTextLength}/{X_MAX_TEXT_LENGTH}
-                {isXOverLimit ? " (over limit)" : ""}
-              </p>
-            ) : null}
           </div>
 
           <div>
@@ -1242,6 +1718,42 @@ export function CreatePromotionForm({
           </div>
         </section>
 
+        {publishPlatform === "x" ? (
+          <section aria-labelledby="promi-x-preview-heading" className="space-y-2 border-t border-zinc-200 pt-8 dark:border-zinc-800">
+            <h3 id="promi-x-preview-heading" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              This is what will be posted to X
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Promi joins your Instagram caption, Pinterest title, and Pinterest description, in that order. Edit those
+              fields above to change this text.
+            </p>
+            <div
+              className="break-words rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-relaxed text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            >
+              {xPostText || (
+                <span className="text-zinc-500 dark:text-zinc-400">Generate or write your copy above to see the X post.</span>
+              )}
+            </div>
+            <p
+              className={`text-xs ${isXOverLimit ? "font-medium text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"}`}
+              role={isXOverLimit ? "alert" : undefined}
+            >
+              {xTextLength}/{X_MAX_TEXT_LENGTH} characters
+              {isXOverLimit ? ". Over the X limit. Shorten your copy before scheduling." : ""}
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {hashtagsExcludedFromX
+                ? "Hashtags aren't included in the X post. If you want them on X, add them to the caption."
+                : "Hashtags aren't included in the X post."}
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {xImageWillAttach
+                ? "Image: your uploaded image will be attached."
+                : "No image will be attached. Sample product images aren't automatically posted to X."}
+            </p>
+          </section>
+        ) : null}
+
         <section className="space-y-4 border-t border-zinc-200 pt-8 dark:border-zinc-800">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Schedule</h3>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -1261,6 +1773,7 @@ export function CreatePromotionForm({
             </label>
             <input
               id="promi-upload-image"
+              ref={imageInputRef}
               type="file"
               accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
               onChange={(e) => handleImageChange(e.target.files?.[0] ?? null)}
@@ -1271,8 +1784,18 @@ export function CreatePromotionForm({
             </p>
             {!selectedImage && uploadedImage?.imageUrl ? (
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Reusing image from the source post. Upload a new file if you want to replace it.
+                Using your saved image. Upload a new file to replace it.
               </p>
+            ) : null}
+            {selectedImage || uploadedImage?.imageUrl ? (
+              <button
+                type="button"
+                onClick={handleRemoveImage}
+                disabled={persistKind !== null}
+                className="text-xs font-medium text-zinc-700 underline underline-offset-2 disabled:opacity-50 dark:text-zinc-200"
+              >
+                Remove image
+              </button>
             ) : null}
             {selectedImagePreviewUrl ? (
               <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-900">
@@ -1287,54 +1810,6 @@ export function CreatePromotionForm({
               </div>
             ) : null}
           </div>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-1">
-              <label htmlFor="promi-publish-platform" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Platform
-              </label>
-              <select
-                id="promi-publish-platform"
-                value={publishPlatform}
-                onChange={(e) => {
-                  setPublishPlatform(e.target.value as PublishPlatform);
-                  setAccountId("");
-                }}
-                className={DATE_TIME_FIELD}
-              >
-                <option value="instagram">Instagram</option>
-                <option value="x">X</option>
-                <option value="facebook">Facebook</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="promi-connected-account" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Connected account (optional)
-              </label>
-              <select
-                id="promi-connected-account"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                aria-describedby={accountDescribedBy}
-                className={DATE_TIME_FIELD}
-              >
-                <option value="">No account selected</option>
-                {accountsForPlatform.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.displayName ?? acc.externalAccountId ?? acc.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {accountsForPlatform.length === 0 ? (
-            <p id="promi-connected-account-help" className="text-xs text-zinc-500 dark:text-zinc-400">
-              No active {platformLabel(publishPlatform)} account found.{" "}
-              <Link href="/settings/accounts" className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-                Manage accounts
-              </Link>{" "}
-              for live publishing.
-            </p>
-          ) : null}
           <div className="flex flex-wrap items-end gap-4">
             <div className="space-y-1">
               <label htmlFor="promi-schedule-date" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
@@ -1369,7 +1844,7 @@ export function CreatePromotionForm({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={handleSaveDraft}
+              onClick={() => void handleSaveDraft()}
               disabled={persistKind !== null}
               aria-busy={persistKind === "draft"}
               className={BTN_SECONDARY}
@@ -1377,7 +1852,7 @@ export function CreatePromotionForm({
               {persistKind === "draft" ? (
                 <>
                   <InlineSpinner />
-                  Saving...
+                  Saving…
                 </>
               ) : (
                 "Save draft"
@@ -1386,22 +1861,28 @@ export function CreatePromotionForm({
             <button
               type="button"
               onClick={() => void handleSchedulePromotion()}
-              disabled={persistKind !== null || (publishPlatform === "x" && isXOverLimit) || scheduledLimitReached}
+              disabled={
+                persistKind !== null || (publishPlatform === "x" && isXOverLimit) || scheduledLimitReached || alreadyScheduled
+              }
               aria-busy={persistKind === "schedule"}
               className={scheduledLimitReached ? BTN_LOCKED : BTN_PRIMARY_SM}
             >
               {persistKind === "schedule" ? (
                 <>
                   <InlineSpinner />
-                  Scheduling...
+                  Scheduling…
                 </>
+              ) : alreadyScheduled ? (
+                "Scheduled"
               ) : (
                 "Schedule post"
               )}
             </button>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Save draft keeps this copy and optional date/time on this device. Schedule post sends it to the publishing queue.
+            {alreadyScheduled
+              ? "This post is already scheduled. Change the copy, image, date, time, platform, or account to schedule another version, or start a new post."
+              : "Save draft keeps this copy and optional date/time on this device. Schedule post sends it to the publishing queue."}
           </p>
           {scheduleError ? (
             <div className="space-y-1">
@@ -1422,12 +1903,19 @@ export function CreatePromotionForm({
           {scheduledSuccess ? (
             <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/40 dark:bg-emerald-950/30">
               <p className="text-sm text-emerald-700 dark:text-emerald-300" role="status" aria-live="polite">
-                Scheduled for {scheduledSuccess.when} on {platformLabel(scheduledSuccess.platform)}.
+                {isTestOnlyPlatform(scheduledSuccess.platform)
+                  ? `Test publish scheduled for ${scheduledSuccess.when}. Nothing will be posted to ${platformLabel(scheduledSuccess.platform)}.`
+                  : `Scheduled for ${scheduledSuccess.when} on ${platformLabel(scheduledSuccess.platform)}.`}
               </p>
-              <p className="text-xs text-emerald-700 dark:text-emerald-300">
-                Promi will publish this automatically using the server scheduler.
-              </p>
-              <div className="flex flex-wrap gap-3">
+              <p className="text-xs text-emerald-700 dark:text-emerald-300">{PUBLISHING_TIMING_NOTE}</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleStartAnother}
+                  className={`text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100 ${BUTTON_FOCUS}`}
+                >
+                  Start another post
+                </button>
                 <Link href="/scheduled" className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
                   Open Scheduled queue
                 </Link>
@@ -1453,8 +1941,8 @@ export function CreatePromotionForm({
         {channels.instagram ? (
           <PreviewCard
             variant="instagram"
-            imageSrc={effectiveProduct.image}
-            imageAlt={effectiveProduct.name}
+            imageSrc={previewImage}
+            imageAlt={previewImageAlt}
             caption={previewCaption}
             hashtags={hashtags}
             isFilled={hasGenerated}
@@ -1468,8 +1956,8 @@ export function CreatePromotionForm({
         {channels.pinterest ? (
           <PreviewCard
             variant="pinterest"
-            imageSrc={effectiveProduct.image}
-            imageAlt={effectiveProduct.name}
+            imageSrc={previewImage}
+            imageAlt={previewImageAlt}
             title={previewPinTitle}
             description={previewPinDesc}
             isFilled={hasGenerated}

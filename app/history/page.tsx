@@ -6,7 +6,7 @@ export default function HistoryPage() {
     <>
       <PageHeader
         title="History"
-        description="Server publishing outcomes. After scheduled time, status updates can appear with a short delay while the scheduler processes the queue."
+        description="Publishing outcomes for your posts. Updates appear after Promi's publishing job processes a post."
       />
       <PostHistoryList />
     </>

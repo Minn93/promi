@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getInternalBetaOwnerId } from "@/src/lib/internal-beta-mode";
 import type { PublishErrorCode } from "@/src/lib/platforms/core/errors";
 import type { Platform } from "@/src/lib/platforms/core/types";
+import { composePublishText } from "@/src/lib/services/posts/publish-text";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -144,15 +145,5 @@ export function asPlatform(value: string): Platform {
 }
 
 export function payloadToText(payload: Prisma.JsonValue): string {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
-  const data = payload as Record<string, unknown>;
-  return [
-    String(data.instagramCaption ?? "").trim(),
-    String(data.pinterestTitle ?? "").trim(),
-    String(data.pinterestDescription ?? "").trim(),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return composePublishText(payload);
 }

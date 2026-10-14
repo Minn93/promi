@@ -62,7 +62,7 @@ function shouldRefreshXAccessToken(account: ConnectedAccount): boolean {
 }
 
 function buildPublishInput(
-  post: { id: string; contentPayload: Prisma.JsonValue; imageUrl: string | null; idempotencyKey: string | null },
+  post: { id: string; ownerId: string; contentPayload: Prisma.JsonValue; imageUrl: string | null; idempotencyKey: string | null },
   platform: ReturnType<typeof asPlatform>,
   account: ConnectedAccount | null,
 ): PublishInput {
@@ -71,6 +71,7 @@ function buildPublishInput(
     accountId: account?.id ?? `mock-${platform}-account`,
     text: payloadToText(post.contentPayload),
     mediaUrl: post.imageUrl ?? null,
+    ownerId: post.ownerId,
     idempotencyKey: post.idempotencyKey ?? null,
     accessToken: account?.accessToken ?? null,
     externalAccountId: account?.externalAccountId ?? null,

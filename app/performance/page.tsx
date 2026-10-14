@@ -6,7 +6,7 @@ export default function PerformancePage() {
     <>
       <PageHeader
         title="Performance"
-        description="A simple snapshot of promotions you’ve saved on this device."
+        description="A device-local snapshot of drafts and saved promotions in this browser — not live published reach."
       />
       <PerformanceOverview />
     </>

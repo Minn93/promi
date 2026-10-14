@@ -112,6 +112,24 @@ if (!isProd) {
   );
 }
 
+{
+  const blobHost = process.env.PROMI_MEDIA_BLOB_HOST?.trim().toLowerCase() ?? "";
+  const blobHostValid = /^[a-z0-9]+\.public\.blob\.vercel-storage\.com$/.test(blobHost);
+  const blobCredentials = hasNonEmpty("BLOB_READ_WRITE_TOKEN") || hasNonEmpty("BLOB_STORE_ID");
+  if (blobHost && !blobHostValid) {
+    warnings.push("PROMI_MEDIA_BLOB_HOST must be a public Vercel Blob host (<id>.public.blob.vercel-storage.com); Blob storage stays disabled.");
+  }
+  if (blobHostValid && blobCredentials) {
+    infos.push(`Image storage: Vercel Blob (${blobHost}).`);
+  } else if (isProd) {
+    warnings.push(
+      "Image storage is not configured (PROMI_MEDIA_BLOB_HOST + BLOB_READ_WRITE_TOKEN or BLOB_STORE_ID). Image uploads will return 503; posts without images still work.",
+    );
+  } else {
+    infos.push("Image storage: local disk (public/uploads/scheduled-images, development only).");
+  }
+}
+
 logSection("Promi internal-beta config check");
 if (infos.length > 0) {
   logList("[info]", infos);

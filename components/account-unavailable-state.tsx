@@ -13,7 +13,7 @@ export function AccountUnavailableState({ title, description }: AccountUnavailab
         <p className="font-medium text-zinc-900 dark:text-zinc-50">{title}</p>
         <p className="mt-2">This account is not available right now.</p>
         <p className="mt-1">
-          If this persists, contact support or your workspace operator.
+          If this persists, contact Promi support.
         </p>
         <div className="mt-3">
           <Link

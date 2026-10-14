@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getPostStatusCopy } from "@/lib/post-status-copy";
+import {
+  isTestOnlyPlatform,
+  publishPlatformBadgeLabel,
+  testPublishNotice,
+  toUserFacingPublishMessage,
+} from "@/lib/publish-platform-copy";
 import { saveReusableTemplateFromScheduledPostId } from "@/lib/reusable-post-templates-storage";
 import { toUserFacingError } from "@/lib/user-facing-error";
 
@@ -18,7 +24,9 @@ type PostHistoryItem = {
 };
 
 const REFRESH_EVENT = "promi:scheduled-posts-updated";
-const POLL_INTERVAL_MS = 5000;
+/** Each poll hits the database; keep this modest and pause while the tab is hidden. */
+const POLL_INTERVAL_MS = 15000;
+const RESUME_REFRESH_DEDUPE_MS = 2000;
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-zinc-500/40 dark:focus-visible:ring-offset-zinc-950";
 
@@ -118,12 +126,13 @@ export function PostHistoryList() {
   const [query, setQuery] = useState("");
   const [announceFilterResults, setAnnounceFilterResults] = useState(false);
   const [templateNotice, setTemplateNotice] = useState<string | null>(null);
+  const [savedTemplateId, setSavedTemplateId] = useState<string | null>(null);
   const [savingTemplateId, setSavingTemplateId] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const templateNoticeRef = useRef<HTMLDivElement | null>(null);
 
+  // Errors are only cleared on success so a failing poll keeps the same message instead of flickering.
   const refresh = useCallback(async () => {
-    setError(null);
-    setErrorCode(null);
     try {
       const res = await fetch("/api/post-history?limit=200", { cache: "no-store" });
       const body = (await res.json().catch(() => null)) as { data?: PostHistoryItem[]; error?: string; code?: string } | null;
@@ -134,6 +143,8 @@ export function PostHistoryList() {
         return;
       }
       setItems(Array.isArray(body?.data) ? body.data : []);
+      setError(null);
+      setErrorCode(null);
     } catch {
       setError("Could not load post history.");
       setErrorCode(null);
@@ -142,24 +153,60 @@ export function PostHistoryList() {
     }
   }, []);
 
+  const handleReload = useCallback(async () => {
+    setReloading(true);
+    await refresh();
+    setReloading(false);
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
 
-    const intervalId = window.setInterval(() => {
+    let intervalId: number | undefined;
+    let lastResumeRefreshAt = 0;
+    const startPolling = () => {
+      if (intervalId !== undefined) return;
+      intervalId = window.setInterval(() => {
+        void refresh();
+      }, POLL_INTERVAL_MS);
+    };
+    const stopPolling = () => {
+      if (intervalId === undefined) return;
+      window.clearInterval(intervalId);
+      intervalId = undefined;
+    };
+    // Tab return fires both visibilitychange and focus; refresh once.
+    const refreshOnResume = () => {
+      const now = Date.now();
+      if (now - lastResumeRefreshAt < RESUME_REFRESH_DEDUPE_MS) return;
+      lastResumeRefreshAt = now;
       void refresh();
-    }, POLL_INTERVAL_MS);
+    };
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        stopPolling();
+        return;
+      }
+      refreshOnResume();
+      stopPolling();
+      startPolling();
+    };
     const onFocus = () => {
-      void refresh();
+      if (document.visibilityState === "hidden") return;
+      refreshOnResume();
     };
     const onUpdated = () => {
       void refresh();
     };
 
+    if (document.visibilityState !== "hidden") startPolling();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
     window.addEventListener(REFRESH_EVENT, onUpdated);
     return () => {
-      window.clearInterval(intervalId);
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(REFRESH_EVENT, onUpdated);
     };
@@ -211,6 +258,7 @@ export function PostHistoryList() {
 
   const handleSaveTemplate = async (scheduledPostId: string) => {
     setTemplateNotice(null);
+    setSavedTemplateId(null);
     setSavingTemplateId(scheduledPostId);
     const result = await saveReusableTemplateFromScheduledPostId(scheduledPostId);
     if (result.error) {
@@ -218,6 +266,7 @@ export function PostHistoryList() {
       setSavingTemplateId(null);
       return;
     }
+    setSavedTemplateId(result.template?.id ?? null);
     setTemplateNotice(`Template saved: ${result.template?.name ?? "Reusable template"}`);
     setSavingTemplateId(null);
   };
@@ -229,7 +278,38 @@ export function PostHistoryList() {
         role="status"
         aria-live="polite"
       >
-        Loading post history...
+        Loading history…
+      </div>
+    );
+  }
+
+  if (items.length === 0 && error) {
+    const details = toUserFacingError(errorCode, error);
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center dark:border-red-900/40 dark:bg-red-950/30">
+        <p className="text-sm font-medium text-red-700 dark:text-red-300" role="alert">
+          Couldn&apos;t load history.
+        </p>
+        <p className="mt-1 text-sm text-red-700 dark:text-red-300">{details.message}</p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleReload()}
+            disabled={reloading}
+            className={`rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-950/50 ${FOCUS_RING}`}
+          >
+            {reloading ? "Retrying…" : "Retry"}
+          </button>
+          {details.actions.map((action) => (
+            <Link
+              key={`${action.href}-${action.label}`}
+              href={action.href}
+              className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100"
+            >
+              {action.label}
+            </Link>
+          ))}
+        </div>
       </div>
     );
   }
@@ -237,35 +317,18 @@ export function PostHistoryList() {
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-zinc-200 bg-white p-8 text-center dark:border-zinc-700 dark:bg-zinc-950">
-        {error ? (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400" role="alert">
-            {error}
-          </p>
-        ) : null}
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           No history yet. Publishing updates appear here once posts start running.
         </p>
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          After scheduled time, it can take a short moment for the server scheduler to write final results.
+          Results appear after Promi&apos;s publishing job processes a post, which can be later than the scheduled time.
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <Link
-            href="/scheduled"
+            href="/create"
             className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Schedule a post
-          </Link>
-          <Link
-            href="/create"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            Create first post
-          </Link>
-          <Link
-            href="/settings/accounts"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            Manage accounts
+            Create post
           </Link>
         </div>
       </div>
@@ -299,26 +362,29 @@ export function PostHistoryList() {
   return (
     <section aria-label="Post history controls and results" className="space-y-3">
       {error ? (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900/40 dark:bg-red-950/30">
+        <div className="flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900/40 dark:bg-red-950/30 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-red-700 dark:text-red-300" role="alert">
             {historyErrorDetails?.message ?? error}
           </p>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className={`rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/50 ${FOCUS_RING}`}
-          >
-            Retry
-          </button>
-          {historyErrorDetails?.actions.map((action) => (
-            <Link
-              key={`${action.href}-${action.label}`}
-              href={action.href}
-              className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100"
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void handleReload()}
+              disabled={reloading}
+              className={`rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/50 ${FOCUS_RING}`}
             >
-              {action.label}
-            </Link>
-          ))}
+              {reloading ? "Retrying…" : "Retry"}
+            </button>
+            {historyErrorDetails?.actions.map((action) => (
+              <Link
+                key={`${action.href}-${action.label}`}
+                href={action.href}
+                className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100"
+              >
+                {action.label}
+              </Link>
+            ))}
+          </div>
         </div>
       ) : null}
       {templateNotice ? (
@@ -330,14 +396,22 @@ export function PostHistoryList() {
           aria-live="polite"
         >
           <p>{templateNotice}</p>
+          {savedTemplateId ? (
+            <Link
+              href={`/create?templateId=${encodeURIComponent(savedTemplateId)}`}
+              className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100"
+            >
+              Use template
+            </Link>
+          ) : null}
           {templateNotice.toLowerCase().includes("limit") ? (
             <Link href="/upgrade" className="text-xs font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-100">
-              Upgrade to Pro
+              Upgrade
             </Link>
           ) : null}
         </div>
       ) : null}
-      <fieldset className="flex flex-wrap gap-2">
+      <fieldset className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <legend className="sr-only">Post history filters</legend>
         <input
           type="search"
@@ -347,7 +421,7 @@ export function PostHistoryList() {
             setAnnounceFilterResults(true);
           }}
           placeholder="Search message, post ID, or platform"
-          className="min-w-[220px] rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500"
+          className="w-full min-w-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500 sm:min-w-[220px] sm:flex-1"
           aria-label="Search post history"
         />
         <select
@@ -411,7 +485,7 @@ export function PostHistoryList() {
           {query.trim()
             ? "No history entries match your search and filters."
             : "No history entries match the current filters."}
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => {
@@ -427,9 +501,9 @@ export function PostHistoryList() {
             </button>
             <Link
               href="/scheduled"
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="text-xs font-medium text-zinc-700 underline underline-offset-2 dark:text-zinc-300"
             >
-              Schedule a post
+              View scheduled posts
             </Link>
           </div>
         </div>
@@ -438,6 +512,12 @@ export function PostHistoryList() {
         {filtered.map((item) => {
           const failure = item.eventType === "failed" ? mapHistoryFailure(item.message) : null;
           const statusCopy = getPostStatusCopy(item.status);
+          const testPlatform = isTestOnlyPlatform(item.platform);
+          const eventLabel = item.eventType === "published" && testPlatform ? "Test publish" : eventTypeLabel(item.eventType);
+          const statusLabel = item.status === "published" && testPlatform ? "Test publish" : statusCopy.label;
+          const displayMessage =
+            toUserFacingPublishMessage(item.message, item.platform)
+            ?? (item.eventType === "published" && testPlatform ? testPublishNotice(item.platform) : null);
           return (
             <li
               key={item.id}
@@ -447,21 +527,28 @@ export function PostHistoryList() {
               <span
                 className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${eventTypeClassName(item.eventType)}`}
               >
-                {eventTypeLabel(item.eventType)}
+                {eventLabel}
               </span>
             </p>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{formatAt(item.createdAt)}</p>
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Post ID: {item.scheduledPostId}</p>
+            <p
+              className="mt-1 hidden max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400 sm:block"
+              title={item.scheduledPostId}
+            >
+              Post ID: {item.scheduledPostId}
+            </p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Platform: {platformLabel(item.platform)}</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Platform: {item.platform ? publishPlatformBadgeLabel(item.platform) : platformLabel(item.platform)}
+              </p>
               <span
                 className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClassName(item.status)}`}
-                aria-label={`Post status: ${statusCopy.label}`}
+                aria-label={`Post status: ${statusLabel}`}
               >
-                {statusCopy.label}
+                {statusLabel}
               </span>
             </div>
-            {item.eventType !== "failed" && !item.message ? (
+            {item.eventType !== "failed" && !displayMessage ? (
               <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                 {statusCopy.description}
                 {statusCopy.actionHint ? ` ${statusCopy.actionHint}` : ""}
@@ -479,17 +566,17 @@ export function PostHistoryList() {
                     {failure?.message ?? "Publishing failed for an unknown reason."}
                   </p>
                 </div>
-              ) : item.message ? (
-                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{item.message}</p>
+              ) : displayMessage ? (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{displayMessage}</p>
               ) : null}
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => void handleSaveTemplate(item.scheduledPostId)}
                 disabled={savingTemplateId === item.scheduledPostId}
                 className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
               >
-                {savingTemplateId === item.scheduledPostId ? "Saving..." : "Save as template"}
+                {savingTemplateId === item.scheduledPostId ? "Saving…" : "Save as template"}
               </button>
               <Link
                 href={`/create?sourcePostId=${encodeURIComponent(item.scheduledPostId)}&mode=duplicate`}
@@ -526,7 +613,7 @@ export function PostHistoryList() {
                   href="/upgrade"
                   className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
                 >
-                  Upgrade to Pro
+                  Upgrade
                 </Link>
               ) : null}
             </div>

@@ -89,11 +89,11 @@ export default async function RootLayout({
             <div className="flex min-w-0 flex-1 flex-col">
               <Topbar />
               {internalBetaMode ? (
-                <div className="border-b border-amber-200 bg-amber-50 px-6 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100 md:px-8">
+                <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100 md:px-8">
                   Promi beta: features may change, and billing is not a live paid launch yet.
                 </div>
               ) : null}
-              <main className="flex-1 p-6 md:p-8">{children}</main>
+              <main className="flex-1 p-4 md:p-8">{children}</main>
             </div>
           </div>
         ) : (

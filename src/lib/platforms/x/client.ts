@@ -1,7 +1,5 @@
 import { PlatformPublishError, PUBLISH_ERROR_CODES } from "@/src/lib/platforms/core/errors";
-import { IMAGE_UPLOAD_MAX_BYTES, isAllowedImageMime } from "@/src/lib/media/image-upload";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+import { isAllowedImageMime } from "@/src/lib/media/image-upload";
 
 const DEFAULT_X_API_BASE_URL = "https://api.x.com";
 
@@ -95,54 +93,19 @@ export async function createXPost(accessToken: string, payload: { text: string; 
   return body;
 }
 
+/** X's image upload limit. */
+const X_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
 type LoadedMedia = { bytes: Uint8Array; mimeType: string; filename: string };
 
-async function loadMediaFromPath(mediaUrl: string): Promise<LoadedMedia> {
-  const normalized = mediaUrl.replace(/\\/g, "/");
-  const relative = normalized.replace(/^\/+/, "");
-  const absolute = path.resolve(process.cwd(), "public", relative);
-  const publicRoot = path.resolve(process.cwd(), "public");
-  if (!absolute.startsWith(publicRoot)) {
-    throw new PlatformPublishError(PUBLISH_ERROR_CODES.PLATFORM_FAILURE, "Invalid local image path.");
-  }
-  const bytes = await readFile(absolute);
-  const ext = path.extname(absolute).toLowerCase();
-  const mimeType = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
-  return { bytes, mimeType, filename: path.basename(absolute) };
-}
-
-async function loadMediaFromHttp(mediaUrl: string): Promise<LoadedMedia> {
-  const response = await fetch(mediaUrl);
-  if (!response.ok) {
-    throw new PlatformPublishError(
-      PUBLISH_ERROR_CODES.PLATFORM_FAILURE,
-      `Could not download image (${response.status}).`,
-    );
-  }
-  const buffer = await response.arrayBuffer();
-  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "application/octet-stream";
-  const filename = (() => {
-    try {
-      const pathname = new URL(mediaUrl).pathname;
-      const base = pathname.split("/").pop();
-      return base && base.trim() ? base : "scheduled-image";
-    } catch {
-      return "scheduled-image";
-    }
-  })();
-  return { bytes: new Uint8Array(buffer), mimeType: contentType, filename };
-}
-
-export async function uploadXMediaFromUrl(accessToken: string, mediaUrl: string): Promise<string> {
+/** Uploads already-resolved image bytes (see `loadStoredImage`); never fetches URLs itself. */
+export async function uploadXMedia(accessToken: string, loaded: LoadedMedia): Promise<string> {
   const { apiBaseUrl } = getXConfig();
-  const loaded = mediaUrl.startsWith("/")
-    ? await loadMediaFromPath(mediaUrl)
-    : await loadMediaFromHttp(mediaUrl);
 
   if (!isAllowedImageMime(loaded.mimeType)) {
     throw new PlatformPublishError(PUBLISH_ERROR_CODES.VALIDATION_FAILED, "Only jpg, jpeg, png, and webp images are supported.");
   }
-  if (loaded.bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
+  if (loaded.bytes.byteLength > X_IMAGE_MAX_BYTES) {
     throw new PlatformPublishError(PUBLISH_ERROR_CODES.VALIDATION_FAILED, "Image must be 5MB or smaller.");
   }
 

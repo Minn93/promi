@@ -1,5 +1,6 @@
+import { loadStoredImage, resolvePublishImage } from "@/src/lib/media/image-storage";
 import { MockPlatformPublisher } from "@/src/lib/platforms/mock/publisher";
-import { createXPost, getXConfig, uploadXMediaFromUrl } from "@/src/lib/platforms/x/client";
+import { createXPost, getXConfig, uploadXMedia } from "@/src/lib/platforms/x/client";
 import { mapFromXCreateTweetResponse, mapToXCreateTweetPayload } from "@/src/lib/platforms/x/mapper";
 import { validateXInput } from "@/src/lib/platforms/x/validator";
 import { PlatformPublishError, PUBLISH_ERROR_CODES } from "@/src/lib/platforms/core/errors";
@@ -69,10 +70,16 @@ export class XPlatformPublisher implements PlatformPublisher {
     }
 
     const mediaIds: string[] = [];
-    const mediaUrl = input.mediaUrl?.trim() ?? "";
-    if (mediaUrl.startsWith("/uploads/scheduled-images/")) {
-      const mediaId = await uploadXMediaFromUrl(input.accessToken, mediaUrl);
-      mediaIds.push(mediaId);
+    const media = resolvePublishImage(input.mediaUrl, input.ownerId);
+    if (media.kind === "reject") {
+      throw new PlatformPublishError(PUBLISH_ERROR_CODES.VALIDATION_FAILED, media.message);
+    }
+    if (media.kind === "attach") {
+      const loaded = await loadStoredImage(media.ref);
+      if (!loaded.ok) {
+        throw new PlatformPublishError(PUBLISH_ERROR_CODES.PLATFORM_FAILURE, loaded.message);
+      }
+      mediaIds.push(await uploadXMedia(input.accessToken, loaded.image));
     }
     const payload = mapToXCreateTweetPayload(input, mediaIds);
     const response = await createXPost(input.accessToken, payload);

@@ -24,12 +24,20 @@ export type Product = {
 
 export type PromotionStatus = Extract<InternalPostStatus, "draft" | "scheduled">;
 
-/** Saved or scheduled promotion content tied to a catalog product. */
+/** Saved or scheduled promotion content for a sample product or a user-entered product/campaign. */
 export type Promotion = {
   id: string;
+  /** Sample catalog id, or `custom-…` for a user-entered brief. */
   productId: string;
   productName: string;
+  /** Promi-uploaded image URL, sample image URL, or empty string when there is no image. Never file data. */
   productImage: string;
+  /** Absent on drafts saved before Phase 15.2B; treat those as catalog drafts. */
+  source?: "catalog" | "custom";
+  productDescription?: string;
+  /** Free-text price or offer. */
+  productPrice?: string;
+  productUrl?: string;
   /** Draft media references (URL strings for now; can include uploaded file URLs later). */
   imageRefs?: string[];
   channels: string[];
