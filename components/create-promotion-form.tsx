@@ -8,7 +8,7 @@ import { getProductById, isSampleCatalogImageUrl, mockProducts } from "@/lib/moc
 import { readPromotions, upsertPromotion } from "@/lib/promotions-storage";
 import { isTestOnlyPlatform, publishPlatformOptionLabel } from "@/lib/publish-platform-copy";
 import { PUBLISHING_TIMING_NOTE } from "@/lib/publishing-timing-copy";
-import { composePublishText } from "@/src/lib/services/posts/publish-text";
+import { composeXPost, X_MAX_WEIGHTED_LENGTH, type ComposedXPost } from "@/src/lib/services/posts/publish-text";
 import {
   readReusablePostTemplates,
   removeReusablePostTemplate,
@@ -52,7 +52,6 @@ const ANGLES = [
 ] as const;
 
 const REFRESH_EVENT = "promi:scheduled-posts-updated";
-const X_MAX_TEXT_LENGTH = 280;
 
 type ChannelId = (typeof CHANNELS)[number]["id"];
 type PublishPlatform = "x" | "instagram" | "facebook";
@@ -125,8 +124,14 @@ async function uploadScheduledImage(file: File): Promise<ImageUploadResult> {
 const DRAFT_IMAGE_UPLOAD_FAILED =
   "We couldn't upload your image, so the draft wasn't saved. Try again, or remove the image to save without it.";
 
-function buildXPostText(copy: PromotionCopy): string {
-  return composePublishText(copy);
+function buildXPost(copy: PromotionCopy, url: string): ComposedXPost {
+  return composeXPost({
+    instagramCaption: copy.instagramCaption,
+    pinterestTitle: copy.pinterestTitle,
+    pinterestDescription: copy.pinterestDescription,
+    hashtags: copy.hashtags,
+    brief: { url },
+  });
 }
 
 function generateErrorMessage(status: number, code: string | undefined): string {
@@ -921,6 +926,7 @@ export function CreatePromotionForm({
       pinterestTitle: copyRef.current.pinterestTitle,
       pinterestDescription: copyRef.current.pinterestDescription,
       hashtags: copyRef.current.hashtags,
+      url: subject.url ?? "",
       scheduleDate,
       scheduleTime,
       publishPlatform,
@@ -986,9 +992,9 @@ export function CreatePromotionForm({
       setScheduleError("Choose a future date and time for scheduling.");
       return;
     }
-    const xTextLength = buildXPostText(copyRef.current).length;
-    if (publishPlatform === "x" && xTextLength > X_MAX_TEXT_LENGTH) {
-      setScheduleError(`X post text is too long (${xTextLength}/${X_MAX_TEXT_LENGTH}). Shorten your copy before scheduling.`);
+    const xPost = buildXPost(copyRef.current, subject.url ?? "");
+    if (publishPlatform === "x" && xPost.weightedLength > X_MAX_WEIGHTED_LENGTH) {
+      setScheduleError(`X post text is too long (${xPost.weightedLength}/${X_MAX_WEIGHTED_LENGTH}). Shorten your copy before scheduling.`);
       return;
     }
 
@@ -1152,9 +1158,10 @@ export function CreatePromotionForm({
   const accountsForPlatform = connectedAccounts.filter(
     (acc) => acc.platform === publishPlatform && acc.status === "active",
   );
-  const xPostText = buildXPostText(copyRef.current);
-  const xTextLength = xPostText.length;
-  const isXOverLimit = xTextLength > X_MAX_TEXT_LENGTH;
+  const xPost = buildXPost(copyRef.current, subject.url ?? "");
+  const xPostText = xPost.text;
+  const xTextLength = xPost.weightedLength;
+  const isXOverLimit = xTextLength > X_MAX_WEIGHTED_LENGTH;
   const scheduleErrorDetails = scheduleError ? toUserFacingError(scheduleErrorCode, scheduleError) : null;
   const channelDescribedBy = !hasSelectedChannel ? "promi-channels-help promi-channels-error" : "promi-channels-help";
   const testOnlyPlatform = isTestOnlyPlatform(publishPlatform);
@@ -1163,7 +1170,6 @@ export function CreatePromotionForm({
     (acc) => acc.platform === "x" && (acc.status === "expired" || acc.status === "error"),
   );
   const showXConnectWarning = publishPlatform === "x" && accountsLoaded && accountsForPlatform.length === 0;
-  const hashtagsExcludedFromX = publishPlatform === "x" && Boolean(hashtags.trim());
   const alreadyScheduled = matchesScheduledFingerprint();
   const scheduledImageUrl = uploadedImage?.imageUrl ?? subject.image ?? null;
   const xImageWillAttach = Boolean(selectedImage) || isUploadedScheduledImageUrl(scheduledImageUrl);
@@ -1316,7 +1322,7 @@ export function CreatePromotionForm({
                 className={TEXT_FIELD_BASE}
               />
               <p id="promi-brief-url-help" className={`text-xs ${briefFieldError("url") ? "text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"}`}>
-                {briefFieldError("url") ?? "Saved with your post details. It isn't added to your post automatically."}
+                {briefFieldError("url") ?? "Added to the X post when this is a valid http or https link."}
               </p>
             </div>
           </div>
@@ -1724,11 +1730,11 @@ export function CreatePromotionForm({
               This is what will be posted to X
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Promi joins your Instagram caption, Pinterest title, and Pinterest description, in that order. Edit those
-              fields above to change this text.
+              Promi posts your caption, then your link, then your hashtags. The caption is your Instagram caption,
+              Pinterest title, and Pinterest description. Edit those fields, or the link above, to change this text.
             </p>
             <div
-              className="break-words rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-relaxed text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              className="whitespace-pre-wrap break-words rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm leading-relaxed text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
             >
               {xPostText || (
                 <span className="text-zinc-500 dark:text-zinc-400">Generate or write your copy above to see the X post.</span>
@@ -1738,14 +1744,14 @@ export function CreatePromotionForm({
               className={`text-xs ${isXOverLimit ? "font-medium text-red-600 dark:text-red-400" : "text-zinc-500 dark:text-zinc-400"}`}
               role={isXOverLimit ? "alert" : undefined}
             >
-              {xTextLength}/{X_MAX_TEXT_LENGTH} characters
-              {isXOverLimit ? ". Over the X limit. Shorten your copy before scheduling." : ""}
+              {xTextLength}/{X_MAX_WEIGHTED_LENGTH} characters
+              {isXOverLimit ? ". Over the X limit. Shorten your copy before scheduling." : ". Links count as 23 characters on X."}
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {hashtagsExcludedFromX
-                ? "Hashtags aren't included in the X post. If you want them on X, add them to the caption."
-                : "Hashtags aren't included in the X post."}
-            </p>
+            {xPost.shortened ? (
+              <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
+                Shortened to fit X. The link is kept, then as many whole hashtags as fit, then as much of the caption as fits.
+              </p>
+            ) : null}
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               {xImageWillAttach
                 ? "Image: your uploaded image will be attached."

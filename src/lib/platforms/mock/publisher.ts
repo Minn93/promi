@@ -1,5 +1,6 @@
 import { PlatformPublishError, PUBLISH_ERROR_CODES } from "@/src/lib/platforms/core/errors";
 import type { PlatformPublisher, PublishInput, PublishResult, ValidationResult } from "@/src/lib/platforms/core/types";
+import { X_MAX_WEIGHTED_LENGTH, xWeightedLength } from "@/src/lib/services/posts/publish-text";
 
 export class MockPlatformPublisher implements PlatformPublisher {
   readonly platform;
@@ -15,7 +16,7 @@ export class MockPlatformPublisher implements PlatformPublisher {
     if (!input.text.trim()) {
       return { ok: false, message: "Content is empty.", fieldErrors: { text: "Required." } };
     }
-    if (input.text.length > 280 && this.platform === "x") {
+    if (this.platform === "x" && xWeightedLength(input.text) > X_MAX_WEIGHTED_LENGTH) {
       return {
         ok: false,
         message: "Content exceeds platform limits.",

@@ -69,7 +69,7 @@ function buildPublishInput(
   return {
     platform,
     accountId: account?.id ?? `mock-${platform}-account`,
-    text: payloadToText(post.contentPayload),
+    text: payloadToText(post.contentPayload, platform),
     mediaUrl: post.imageUrl ?? null,
     ownerId: post.ownerId,
     idempotencyKey: post.idempotencyKey ?? null,

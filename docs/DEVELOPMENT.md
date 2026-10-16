@@ -468,7 +468,7 @@ Instagram/Facebook OAuth env vars exist for stubs; real publish for those platfo
 
 ### X post text
 
-The text sent to X is built by `composePublishText` in `src/lib/services/posts/publish-text.ts`: Instagram caption, Pinterest title, and Pinterest description joined with single spaces. **Hashtags are not included.** The Create page's "This is what will be posted to X" preview calls the same function, so any change to X text composition must happen there to keep the preview truthful.
+The text sent to X is built by `composePublishText` in `src/lib/services/posts/publish-text.ts`: caption (Instagram caption, Pinterest title, and Pinterest description), then `brief.url` when it is a valid http/https link, then hashtags. Sections are separated by a blank line. The Create page's "This is what will be posted to X" preview calls the same function. Length uses `xWeightedLength`, which is `twitter-text` `parseTweet` (config v3): each transformed URL counts as 23 characters, and other characters use X's Unicode weights (most CJK characters and emoji count as 2). Over-long posts keep the link, drop whole hashtags that do not fit, and trim the caption without cutting a URL. Instagram and Facebook still receive the caption only.
 
 ## Optional — debugging DB wiring
 

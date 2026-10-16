@@ -1,6 +1,6 @@
 # Phase 15.2B — Free-form product / campaign entry
 
-Create no longer requires a sample catalog product. Users either describe their own product or campaign, or start from a sample product to prefill the same fields. There are no API, auth, billing, Prisma schema, scheduler or `/ops` changes, no new dependencies, and the X publish text is unchanged.
+Create no longer requires a sample catalog product. Users either describe their own product or campaign, or start from a sample product to prefill the same fields. There are no API, auth, billing, Prisma schema, scheduler or `/ops` changes and no new dependencies. Phase 15.2B left X publish text unchanged; Phase 15.2D now includes the link and hashtags (see below).
 
 ## "What are you promoting?" brief
 
@@ -9,7 +9,7 @@ Create no longer requires a sample catalog product. Users either describe their 
 | Product or campaign name | Yes (Generate, Save draft, Schedule) | 80 | Sent as `productName`. |
 | What should people know? | Yes for Generate | 600 | Sent as `productDescription`. |
 | Price or offer | No | 40 | Free text; sent as `productPrice` (`"Not specified"` when blank). |
-| Link | No | 300 | Must be http/https. Saved only: not sent to generation, not added to copy or X text. |
+| Link | No | 300 | Must be http/https. Saved on the brief and included in the X post. Not sent to generation. |
 
 "Or start from a sample product" fills the fields and sets `productId` in the URL with `history.replaceState`. Other query parameters (`templateId`, `promotionId`) are kept.
 
@@ -23,7 +23,7 @@ Create no longer requires a sample catalog product. Users either describe their 
 
 ## Storage
 
-- **Scheduled posts**: `productId` = subject id, `productName` = subject name, `imageUrl` = new upload → reused upload → sample image → `null`. `contentPayload.brief = { description, price, url, source }` (optional; X text ignores it; the edit form preserves it).
+- **Scheduled posts**: `productId` = subject id, `productName` = subject name, `imageUrl` = new upload → reused upload → sample image → `null`. `contentPayload.brief = { description, price, url, source }` (optional; the edit form preserves it). When `brief.url` is a valid http/https URL, Phase 15.2D includes it in the X post.
 - **Local drafts** (`Promotion`): optional `source`, `productDescription`, `productPrice`, `productUrl`. `productImage` = uploaded image URL → sample image → `""`. Drafts saved before 15.2B have none of these; sample-product drafts fall back to the catalog entry.
 - **Templates**: unchanged format.
 
@@ -37,9 +37,14 @@ Save draft with a newly chosen file uploads it first through `POST /api/uploads/
 
 Reopening a draft whose `productImage` is a Promi upload restores it as the current uploaded image, so previews show it, the X preview says it will be attached, and Schedule sends the same URL without a new upload. Sample-product drafts keep the sample details and use the uploaded image when one replaced the sample image.
 
+## Posted X text — Phase 15.2D
+
+Links and hashtags are no longer deferred for X. `composePublishText` in `src/lib/services/posts/publish-text.ts` builds the X post in this order: caption, link, hashtags, with a blank line between non-empty sections. The caption is still the Instagram caption, Pinterest title, and Pinterest description. The link is `brief.url` when it is a valid http/https URL. The Create preview calls the same function.
+
+X length is `xWeightedLength`, which is `twitter-text` `parseTweet` (config v3): each transformed URL counts as 23 characters (t.co). Other characters use X's Unicode weights, so most CJK characters and emoji count as 2. If the post would exceed 280, the caption is trimmed first without cutting a URL, then whole hashtag tokens that do not fit are dropped. The link is never sliced. Instagram and Facebook still receive the caption only.
+
 ## Deferred — Phase 15.2C candidates
 
-- Links and hashtags in published X text (decide together; both change the 280-character count and the preview).
 - Server-side length caps for generate/schedule inputs (client caps only today).
 - Saving the brief with reusable templates.
 - Drafts keeping platform and account.

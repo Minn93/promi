@@ -1,4 +1,4 @@
-import { isTestOnlyPlatform, testPublishNotice } from "./publish-platform-copy.ts";
+import { isTestOnlyPlatform, testPublishNotice } from "./publish-platform-copy";
 
 /**
  * Messages persisted when publish sets needs_reconnect.

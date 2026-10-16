@@ -8,7 +8,7 @@ UI and copy changes to the Create → Schedule → Scheduled → History flow. T
 - **Real vs test publishing**: Create defaults to X. Instagram and Facebook are labelled "test only, not posted". Mock publish messages are shown as "Test publish — not posted to {platform}." in Scheduled and History, and published posts on those platforms are labelled "Test publish". See `lib/publish-platform-copy.ts`.
 - **Scheduler timing copy**: there is no cron, so the copy no longer promises automatic or exact-time publishing. Strings live in `lib/publishing-timing-copy.ts` and `lib/post-status-copy.ts`. **Update them when beta automatic scheduling is re-enabled** (see `docs/DEVELOPMENT.md`, "User-facing timing copy").
 - **Generate errors**: API error codes are mapped to plain language in Create (`generateErrorMessage`).
-- **X preview**: when X is selected, Create shows "This is what will be posted to X". It is built with `composePublishText` (`src/lib/services/posts/publish-text.ts`), the same function the publisher uses, and shows a live character count. Hashtags are excluded, and the preview says so.
+- **X preview**: when X is selected, Create shows "This is what will be posted to X". It is built with `composePublishText` (`src/lib/services/posts/publish-text.ts`), the same function the publisher uses, and shows a live character count. Phase 15.2D includes the saved link and generated hashtags in that text.
 - **Formats vs destination**: "Channels" is renamed "Copy formats to generate". "Publish to" now comes right after the product card. Scheduled cards show "Publish to: …" instead of copy-format chips.
 - **X connection warning**: when X is selected and there is no active X account, an inline warning appears with a Connect X / Reconnect X action that opens in a new tab. Create re-reads accounts when the tab regains focus.
 - **Duplicate schedule guard**: after a successful schedule the button reads "Scheduled" until the copy, date, time, platform or account changes. A "Start another post" action clears the copy, date, time and image.
@@ -17,7 +17,7 @@ UI and copy changes to the Create → Schedule → Scheduled → History flow. T
 ## Deferred — Phase 15.2B candidates
 
 - **Free-form product / campaign idea entry**: let users describe what to promote without picking a catalog product. This needs a product/idea source decision; 15.2A only adds the sample-catalog picker.
-- **Hashtags in X text**: decide whether to append hashtags to the X post (this is a publishing-content change and must update `composePublishText` and its preview together).
+- **Hashtags in X text**: done in Phase 15.2D. The X post is caption, then link, then hashtags, via `composePublishText`.
 - **History post identity**: show product name / post excerpt instead of only the post ID.
 - **Drafts keep platform, account and image**: local drafts store copy and date/time only.
 - **Plan limit counts failed / needs-reconnect posts as active**: revisit what counts toward `scheduledPostsActive`.

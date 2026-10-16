@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getInternalBetaOwnerId } from "@/src/lib/internal-beta-mode";
 import type { PublishErrorCode } from "@/src/lib/platforms/core/errors";
 import type { Platform } from "@/src/lib/platforms/core/types";
-import { composePublishText } from "@/src/lib/services/posts/publish-text";
+import { composeCaptionText, composePublishText } from "@/src/lib/services/posts/publish-text";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -144,6 +144,7 @@ export function asPlatform(value: string): Platform {
   return "instagram";
 }
 
-export function payloadToText(payload: Prisma.JsonValue): string {
-  return composePublishText(payload);
+export function payloadToText(payload: Prisma.JsonValue, platform?: string): string {
+  if (platform === "x") return composePublishText(payload);
+  return composeCaptionText(payload);
 }

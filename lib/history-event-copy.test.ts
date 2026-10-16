@@ -5,7 +5,7 @@ import {
   isHistoryReconnectFailure,
   isKnownReconnectPublishMessage,
   presentHistoryEvent,
-} from "./history-event-copy.ts";
+} from "./history-event-copy";
 
 describe("presentHistoryEvent", () => {
   it("maps stored scheduled messages without rewriting them", () => {

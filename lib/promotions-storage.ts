@@ -1,15 +1,11 @@
+import { readPromiBrowserOwnerId } from "./browser-owner-id";
 import type { Promotion } from "./types";
 
 export const PROMOTIONS_STORAGE_KEY = "promi-promotions";
 
 function getCurrentOwnerStorageKey(): string {
-  if (typeof document === "undefined") {
-    return PROMOTIONS_STORAGE_KEY;
-  }
-  const ownerId = document.body?.dataset?.promiOwnerId?.trim();
-  if (!ownerId) {
-    return PROMOTIONS_STORAGE_KEY;
-  }
+  const ownerId = readPromiBrowserOwnerId();
+  if (!ownerId) return PROMOTIONS_STORAGE_KEY;
   return `${PROMOTIONS_STORAGE_KEY}:${ownerId}`;
 }
 
