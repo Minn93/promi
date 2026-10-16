@@ -3,12 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getPostStatusCopy } from "@/lib/post-status-copy";
-import {
-  isTestOnlyPlatform,
-  publishPlatformBadgeLabel,
-  testPublishNotice,
-  toUserFacingPublishMessage,
-} from "@/lib/publish-platform-copy";
+import { publishPlatformBadgeLabel } from "@/lib/publish-platform-copy";
+import { historyViewOnXUrl, presentHistoryEvent } from "@/lib/history-event-copy";
 import { saveReusableTemplateFromScheduledPostId } from "@/lib/reusable-post-templates-storage";
 import { toUserFacingError } from "@/lib/user-facing-error";
 
@@ -21,6 +17,8 @@ type PostHistoryItem = {
   channel: string | null;
   message: string | null;
   createdAt: string;
+  productName: string;
+  providerUrl: string | null;
 };
 
 const REFRESH_EVENT = "promi:scheduled-posts-updated";
@@ -41,28 +39,20 @@ function formatAt(iso: string): string {
   return dateTimeFormatter.format(d);
 }
 
-function eventTypeLabel(eventType: PostHistoryItem["eventType"]): string {
-  if (eventType === "scheduled") return getPostStatusCopy("scheduled").label;
-  if (eventType === "picked_up") return getPostStatusCopy("processing").label;
-  if (eventType === "published") return getPostStatusCopy("published").label;
-  if (eventType === "failed") return getPostStatusCopy("failed").label;
-  if (eventType === "cancelled") return getPostStatusCopy("cancelled").label;
-  return "Retried";
-}
-
-function eventTypeClassName(eventType: PostHistoryItem["eventType"]): string {
-  if (eventType === "published") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
-  if (eventType === "failed") return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300";
-  if (eventType === "cancelled") return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
-  if (eventType === "retried") return "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
+function eventBadgeClassName(badge: string, reconnect: boolean): string {
+  if (badge === "Published" || badge === "Test publish") {
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
+  }
+  if (reconnect) return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
+  if (badge === "Failed") return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300";
+  if (badge === "Cancelled") return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+  if (badge === "Retried" || badge === "Updated") return "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
   return "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
 }
 
-function platformLabel(platform: PostHistoryItem["platform"]): string {
-  if (platform === "x") return "X";
-  if (platform === "instagram") return "Instagram";
-  if (platform === "facebook") return "Facebook";
-  return "Not available";
+function campaignLabel(name: string | null | undefined): string {
+  const trimmed = name?.trim() ?? "";
+  return trimmed || "Untitled post";
 }
 
 function canReschedule(status: PostHistoryItem["status"]): boolean {
@@ -74,15 +64,6 @@ type PlatformFilter = "all" | "x" | "instagram" | "facebook";
 type SortOrder = "newest" | "oldest";
 type HistoryFailureKind = "auth" | "validation" | "plan" | "temporary" | "publish" | "unknown";
 const UI_STATE_KEY = "promi:history-ui:v1";
-
-function statusClassName(status: PostHistoryItem["status"]): string {
-  if (status === "published") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
-  if (status === "failed") return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300";
-  if (status === "needs_reconnect") return "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
-  if (status === "processing") return "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
-  if (status === "cancelled") return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
-  return "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
-}
 
 function mapHistoryFailure(message: string | null): { kind: HistoryFailureKind; message: string } | null {
   if (!message) return null;
@@ -335,17 +316,21 @@ export function PostHistoryList() {
     );
   }
 
-  const filtered = items
+  const visibleItems = items.filter((item) => item.eventType !== "picked_up");
+  const filtered = visibleItems
     .filter((item) => (statusFilter === "all" ? true : item.status === statusFilter))
     .filter((item) => (platformFilter === "all" ? true : item.platform === platformFilter))
     .filter((item) => {
       const q = query.trim().toLowerCase();
       if (!q) return true;
+      const event = presentHistoryEvent(item);
+      const platformText = item.platform ? publishPlatformBadgeLabel(item.platform) : "";
       return [
+        campaignLabel(item.productName),
         item.scheduledPostId,
         item.message ?? "",
-        platformLabel(item.platform),
-        eventTypeLabel(item.eventType),
+        platformText,
+        event.badge,
       ]
         .join(" ")
         .toLowerCase()
@@ -420,7 +405,7 @@ export function PostHistoryList() {
             setQuery(e.target.value);
             setAnnounceFilterResults(true);
           }}
-          placeholder="Search message, post ID, or platform"
+          placeholder="Search campaign, post ID, or platform"
           className="w-full min-w-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:placeholder:text-zinc-500 sm:min-w-[220px] sm:flex-1"
           aria-label="Search post history"
         />
@@ -474,7 +459,7 @@ export function PostHistoryList() {
         aria-live={announceFilterResults ? "polite" : undefined}
         aria-atomic={announceFilterResults || undefined}
       >
-        Showing {filtered.length.toLocaleString()} of {items.length.toLocaleString()} history entries
+        Showing {filtered.length.toLocaleString()} of {visibleItems.length.toLocaleString()} history entries
       </p>
       {filtered.length === 0 ? (
         <div
@@ -510,113 +495,107 @@ export function PostHistoryList() {
       ) : null}
       <ul className="space-y-2">
         {filtered.map((item) => {
-          const failure = item.eventType === "failed" ? mapHistoryFailure(item.message) : null;
+          const event = presentHistoryEvent(item);
+          const failure = item.eventType === "failed" && !event.reconnect
+            ? (mapHistoryFailure(item.message) ?? { kind: "unknown" as const, message: "Publishing failed for an unknown reason." })
+            : null;
           const statusCopy = getPostStatusCopy(item.status);
-          const testPlatform = isTestOnlyPlatform(item.platform);
-          const eventLabel = item.eventType === "published" && testPlatform ? "Test publish" : eventTypeLabel(item.eventType);
-          const statusLabel = item.status === "published" && testPlatform ? "Test publish" : statusCopy.label;
-          const displayMessage =
-            toUserFacingPublishMessage(item.message, item.platform)
-            ?? (item.eventType === "published" && testPlatform ? testPublishNotice(item.platform) : null);
+          const viewOnX = historyViewOnXUrl(item);
+          const name = campaignLabel(item.productName);
           return (
             <li
               key={item.id}
               className="rounded-lg border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-950"
             >
-            <p>
-              <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${eventTypeClassName(item.eventType)}`}
-              >
-                {eventLabel}
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{formatAt(item.createdAt)}</p>
-            <p
-              className="mt-1 hidden max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400 sm:block"
-              title={item.scheduledPostId}
-            >
-              Post ID: {item.scheduledPostId}
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Platform: {item.platform ? publishPlatformBadgeLabel(item.platform) : platformLabel(item.platform)}
-              </p>
-              <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClassName(item.status)}`}
-                aria-label={`Post status: ${statusLabel}`}
-              >
-                {statusLabel}
-              </span>
-            </div>
-            {item.eventType !== "failed" && !displayMessage ? (
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {statusCopy.description}
-                {statusCopy.actionHint ? ` ${statusCopy.actionHint}` : ""}
-              </p>
-            ) : null}
-            {item.channel ? (
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Channel: {item.channel}</p>
-            ) : null}
-              {item.eventType === "failed" ? (
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <h2 className="min-w-0 text-base font-semibold text-zinc-900 dark:text-zinc-50">{name}</h2>
+                <span
+                  className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${eventBadgeClassName(event.badge, event.reconnect)}`}
+                >
+                  {event.badge}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{formatAt(item.createdAt)}</p>
+              {event.supporting ? (
+                <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{event.supporting}</p>
+              ) : null}
+              {failure ? (
                 <div className="mt-2 space-y-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 dark:border-red-900/40 dark:bg-red-950/30">
                   <p className="text-xs font-semibold text-red-700 dark:text-red-300">
-                    {failure ? failureKindLabel(failure.kind) : "Publish failure"}
+                    {failureKindLabel(failure.kind)}
                   </p>
-                  <p className="text-sm text-red-700 dark:text-red-300">
-                    {failure?.message ?? "Publishing failed for an unknown reason."}
-                  </p>
+                  <p className="text-sm text-red-700 dark:text-red-300">{failure.message}</p>
                 </div>
-              ) : displayMessage ? (
-                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{displayMessage}</p>
               ) : null}
-            <div className="mt-3 flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
-              <button
-                type="button"
-                onClick={() => void handleSaveTemplate(item.scheduledPostId)}
-                disabled={savingTemplateId === item.scheduledPostId}
-                className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
-              >
-                {savingTemplateId === item.scheduledPostId ? "Saving…" : "Save as template"}
-              </button>
-              <Link
-                href={`/create?sourcePostId=${encodeURIComponent(item.scheduledPostId)}&mode=duplicate`}
-                className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
-              >
-                Duplicate
-              </Link>
-              {canReschedule(item.status) ? (
+              <p className="mt-2 max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400" title={item.scheduledPostId}>
+                Post ID: {item.scheduledPostId}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Platform: {item.platform ? publishPlatformBadgeLabel(item.platform) : "Not available"}
+                <span className="mx-1.5 text-zinc-300 dark:text-zinc-600" aria-hidden="true">·</span>
+                <span>Current status: {statusCopy.label}</span>
+              </p>
+              {item.channel ? (
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Channel: {item.channel}</p>
+              ) : null}
+              <div className="mt-3 flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
+                {viewOnX ? (
+                  <a
+                    href={viewOnX}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+                  >
+                    View on X
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void handleSaveTemplate(item.scheduledPostId)}
+                  disabled={savingTemplateId === item.scheduledPostId}
+                  className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+                >
+                  {savingTemplateId === item.scheduledPostId ? "Saving…" : "Save as template"}
+                </button>
                 <Link
-                  href={`/create?sourcePostId=${encodeURIComponent(item.scheduledPostId)}&mode=reschedule`}
+                  href={`/create?sourcePostId=${encodeURIComponent(item.scheduledPostId)}&mode=duplicate`}
                   className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
                 >
-                  Reschedule
+                  Duplicate
                 </Link>
-              ) : null}
-              {failure?.kind === "auth" && item.platform ? (
-                <a
-                  href={`/api/oauth/${encodeURIComponent(item.platform)}/start`}
-                  className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-amber-900/50 dark:hover:bg-amber-950/40 dark:hover:text-amber-300 ${FOCUS_RING}`}
-                >
-                  Reconnect account
-                </a>
-              ) : null}
-              {failure?.kind === "validation" ? (
-                <Link
-                  href={`/scheduled/${encodeURIComponent(item.scheduledPostId)}/edit`}
-                  className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
-                >
-                  Edit post
-                </Link>
-              ) : null}
-              {failure?.kind === "plan" ? (
-                <Link
-                  href="/upgrade"
-                  className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
-                >
-                  Upgrade
-                </Link>
-              ) : null}
-            </div>
+                {canReschedule(item.status) ? (
+                  <Link
+                    href={`/create?sourcePostId=${encodeURIComponent(item.scheduledPostId)}&mode=reschedule`}
+                    className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+                  >
+                    Reschedule
+                  </Link>
+                ) : null}
+                {event.reconnect && item.platform ? (
+                  <a
+                    href={`/api/oauth/${encodeURIComponent(item.platform)}/start`}
+                    className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-amber-900/50 dark:hover:bg-amber-950/40 dark:hover:text-amber-300 ${FOCUS_RING}`}
+                  >
+                    Reconnect account
+                  </a>
+                ) : null}
+                {failure?.kind === "validation" ? (
+                  <Link
+                    href={`/scheduled/${encodeURIComponent(item.scheduledPostId)}/edit`}
+                    className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+                  >
+                    Edit post
+                  </Link>
+                ) : null}
+                {failure?.kind === "plan" ? (
+                  <Link
+                    href="/upgrade"
+                    className={`promi-press inline-flex items-center justify-center rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+                  >
+                    Upgrade
+                  </Link>
+                ) : null}
+              </div>
             </li>
           );
         })}

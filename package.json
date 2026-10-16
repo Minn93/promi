@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:x-text": "node --experimental-strip-types --test src/lib/services/posts/publish-text.test.ts",
+    "test:history": "node --experimental-strip-types --test lib/history-event-copy.test.ts",
     "check:internal-beta": "node ./scripts/check-internal-beta.mjs",
     "backfill:owner-ids": "node ./scripts/backfill-owner-ids.mjs",
     "validate:owner-ids": "node ./scripts/validate-owner-ids.mjs",
@@ -38,7 +40,8 @@
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
     "resend": "^4.8.0",
-    "stripe": "^17.7.0"
+    "stripe": "^17.7.0",
+    "twitter-text": "^3.1.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.4",

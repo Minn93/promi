@@ -46,6 +46,8 @@ export async function GET(request: Request) {
           select: {
             status: true,
             platform: true,
+            productName: true,
+            providerUrl: true,
           },
         },
       },
@@ -59,6 +61,8 @@ export async function GET(request: Request) {
       createdAt: row.createdAt,
       status: row.scheduledPost?.status ?? null,
       platform: row.scheduledPost?.platform ?? null,
+      productName: row.scheduledPost?.productName ?? "",
+      providerUrl: row.scheduledPost?.providerUrl ?? null,
     }));
     return NextResponse.json(
       { data },

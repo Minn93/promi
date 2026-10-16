@@ -6,7 +6,7 @@ export default function HistoryPage() {
     <>
       <PageHeader
         title="History"
-        description="Publishing outcomes for your posts. Updates appear after Promi's publishing job processes a post."
+        description="What happened to each post, from scheduling through publishing."
       />
       <PostHistoryList />
     </>
