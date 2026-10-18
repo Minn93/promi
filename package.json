@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test:x-text": "node --experimental-strip-types --import ./scripts/register-ts-extension-hook.mjs --test src/lib/services/posts/publish-text.test.ts",
     "test:history": "node --experimental-strip-types --import ./scripts/register-ts-extension-hook.mjs --test lib/history-event-copy.test.ts",
+    "test:draft-context": "node --experimental-strip-types --import ./scripts/register-ts-extension-hook.mjs --test lib/draft-template-context.test.ts",
     "check:internal-beta": "node ./scripts/check-internal-beta.mjs",
     "backfill:owner-ids": "node ./scripts/backfill-owner-ids.mjs",
     "validate:owner-ids": "node ./scripts/validate-owner-ids.mjs",

@@ -5,6 +5,15 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PreviewCard } from "@/components/preview-card";
 import { getProductById, isSampleCatalogImageUrl, mockProducts } from "@/lib/mock-data";
+import {
+  applyTemplateBrief,
+  draftAccountRestoreNotice,
+  draftContextForStorage,
+  isPublishPlatform,
+  readDraftContext,
+  restoreDraftAccount,
+  templateBriefFromCreate,
+} from "@/lib/draft-template-context";
 import { readPromotions, upsertPromotion } from "@/lib/promotions-storage";
 import { isTestOnlyPlatform, publishPlatformOptionLabel } from "@/lib/publish-platform-copy";
 import { PUBLISHING_TIMING_NOTE } from "@/lib/publishing-timing-copy";
@@ -362,6 +371,7 @@ function buildPromotionPayload(
   channelIds: string[],
   copy: PromotionCopy,
   scheduledAt: string | null,
+  draftContext: { platform: PublishPlatform; accountId?: string },
   existingId?: string,
 ): Promotion {
   return {
@@ -381,6 +391,8 @@ function buildPromotionPayload(
     pinterestTitle: copy.pinterestTitle,
     pinterestDescription: copy.pinterestDescription,
     hashtags: copy.hashtags,
+    platform: draftContext.platform,
+    ...(draftContext.accountId ? { accountId: draftContext.accountId } : {}),
     scheduledAt,
     status: "draft",
   };
@@ -444,6 +456,8 @@ export function CreatePromotionForm({
   const [scheduleTime, setScheduleTime] = useState("");
   const [publishPlatform, setPublishPlatform] = useState<PublishPlatform>("x");
   const [accountId, setAccountId] = useState("");
+  const [pendingDraftAccountId, setPendingDraftAccountId] = useState<string | null>(null);
+  const [accountUnavailableNotice, setAccountUnavailableNotice] = useState<string | null>(null);
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [scheduledFingerprint, setScheduledFingerprint] = useState<ScheduledFingerprint | null>(null);
@@ -481,55 +495,73 @@ export function CreatePromotionForm({
 
   const refreshTemplates = () => {
     const result = readReusablePostTemplates();
-    setTemplates(result.items);
+    setTemplates(result.items.filter((item) => item !== null && typeof item === "object" && !Array.isArray(item)));
     setTemplateError(result.warning ?? null);
   };
 
-  const applyTemplate = (template: ReusablePostTemplate) => {
-    const nextCopy: PromotionCopy = {
-      instagramCaption: template.instagramCaption,
-      pinterestTitle: template.pinterestTitle,
-      pinterestDescription: template.pinterestDescription,
-      hashtags: template.hashtags,
-    };
-    copyRef.current = nextCopy;
-    setInstagramCaption(nextCopy.instagramCaption);
-    setPinterestTitle(nextCopy.pinterestTitle);
-    setPinterestDescription(nextCopy.pinterestDescription);
-    setHashtags(nextCopy.hashtags);
-
-    const nextChannels: Record<ChannelId, boolean> = {
-      instagram: template.channels.includes("instagram") || Boolean(nextCopy.instagramCaption),
-      pinterest:
-        template.channels.includes("pinterest")
-        || Boolean(nextCopy.pinterestTitle)
-        || Boolean(nextCopy.pinterestDescription),
-    };
-    if (nextChannels.instagram || nextChannels.pinterest) {
-      setChannels(nextChannels);
-    }
-
-    const toneId = resolveToneId(template.tone);
-    if (toneId) setTone(toneId);
-    const angleId = resolveAngleId(template.angle);
-    if (angleId) setAngle(angleId);
-
-    setPublishPlatform(template.platform);
+  const clearAccountSelection = () => {
+    setPendingDraftAccountId(null);
     setAccountId("");
-    setScheduleDate("");
-    setScheduleTime("");
-    setGenerateError(null);
-    setScheduleError(null);
-    if (template.imageUrl && isUploadedScheduledImageUrl(template.imageUrl)) {
-      setUploadedImage({
-        imageUrl: template.imageUrl,
-        mimeType: "image/*",
-        size: 0,
-      });
-    } else {
-      setUploadedImage(null);
+    setAccountUnavailableNotice(null);
+  };
+
+  const applyTemplate = (template: ReusablePostTemplate) => {
+    try {
+      const nextCopy: PromotionCopy = {
+        instagramCaption: readString(template.instagramCaption),
+        pinterestTitle: readString(template.pinterestTitle),
+        pinterestDescription: readString(template.pinterestDescription),
+        hashtags: readString(template.hashtags),
+      };
+      copyRef.current = nextCopy;
+      setInstagramCaption(nextCopy.instagramCaption);
+      setPinterestTitle(nextCopy.pinterestTitle);
+      setPinterestDescription(nextCopy.pinterestDescription);
+      setHashtags(nextCopy.hashtags);
+
+      const templateChannels = Array.isArray(template.channels)
+        ? template.channels.filter((value): value is string => typeof value === "string")
+        : [];
+      const nextChannels: Record<ChannelId, boolean> = {
+        instagram: templateChannels.includes("instagram") || Boolean(nextCopy.instagramCaption),
+        pinterest:
+          templateChannels.includes("pinterest")
+          || Boolean(nextCopy.pinterestTitle)
+          || Boolean(nextCopy.pinterestDescription),
+      };
+      if (nextChannels.instagram || nextChannels.pinterest) {
+        setChannels(nextChannels);
+      }
+
+      const toneId = resolveToneId(template.tone);
+      if (toneId) setTone(toneId);
+      const angleId = resolveAngleId(template.angle);
+      if (angleId) setAngle(angleId);
+
+      setBrief((current) => applyTemplateBrief(current, template));
+      setPublishPlatform(isPublishPlatform(template.platform) ? template.platform : "x");
+      // Account selection is execution context, so every template returns to the most recently connected account.
+      clearAccountSelection();
+      setScheduleDate("");
+      setScheduleTime("");
+      setGenerateError(null);
+      setScheduleError(null);
+      const imageUrl = typeof template.imageUrl === "string" ? template.imageUrl : null;
+      if (imageUrl && isUploadedScheduledImageUrl(imageUrl)) {
+        setUploadedImage({
+          imageUrl,
+          mimeType: "image/*",
+          size: 0,
+        });
+      } else {
+        setUploadedImage(null);
+      }
+      const templateName = readString(template.name).trim() || "Template";
+      setTemplateNotice(`Template "${templateName}" applied. Choose a future date/time before scheduling.`);
+      setTemplateError(null);
+    } catch {
+      setTemplateError("This template couldn't be applied.");
     }
-    setTemplateNotice(`Template "${template.name}" applied. Choose a future date/time before scheduling.`);
   };
 
   useEffect(() => {
@@ -588,59 +620,76 @@ export function CreatePromotionForm({
   useEffect(() => {
     const id = promotionId?.trim();
     if (!id) return;
-    const saved = readPromotions().items.find((p) => p.id === id);
-    if (!saved) return;
-    setDraftId(saved.id);
+    try {
+      const saved = readPromotions().items.find((p) => p?.id === id);
+      if (!saved) return;
+      setDraftId(typeof saved.id === "string" ? saved.id : id);
 
-    // Drafts saved before 15.2B have no brief fields; sample-product drafts fall back to the catalog entry.
-    const sample = getProductById(saved.productId) ?? null;
-    setSubjectBase(
-      sample
-        ? catalogBase(sample)
-        : {
-            kind: "reused",
-            id: saved.productId,
-            name: saved.productName,
-            image: isSampleCatalogImageUrl(saved.productImage) ? saved.productImage : null,
-          },
-    );
-    setBrief({
-      name: saved.productName,
-      description: saved.productDescription ?? sample?.description ?? "",
-      price: saved.productPrice ?? (sample ? usd.format(sample.price) : ""),
-      url: saved.productUrl ?? (sample ? catalogProductUrl(sample) : ""),
-    });
-    setShowUnknownProductNotice(false);
-    if (isUploadedScheduledImageUrl(saved.productImage)) {
-      setUploadedImage({ imageUrl: saved.productImage, mimeType: "image/*", size: 0 });
+      const productId = typeof saved.productId === "string" ? saved.productId : "";
+      const productName = typeof saved.productName === "string" ? saved.productName : "";
+      const productImage = typeof saved.productImage === "string" ? saved.productImage : "";
+      // Drafts saved before 15.2B have no brief fields; sample-product drafts fall back to the catalog entry.
+      const sample = getProductById(productId) ?? null;
+      setSubjectBase(
+        sample
+          ? catalogBase(sample)
+          : {
+              kind: "reused",
+              id: productId,
+              name: productName,
+              image: isSampleCatalogImageUrl(productImage) ? productImage : null,
+            },
+      );
+      setBrief({
+        name: productName,
+        description: typeof saved.productDescription === "string" ? saved.productDescription : sample?.description ?? "",
+        price: typeof saved.productPrice === "string" ? saved.productPrice : sample ? usd.format(sample.price) : "",
+        url: typeof saved.productUrl === "string" ? saved.productUrl : sample ? catalogProductUrl(sample) : "",
+      });
+      setShowUnknownProductNotice(false);
+      if (isUploadedScheduledImageUrl(productImage)) {
+        setUploadedImage({ imageUrl: productImage, mimeType: "image/*", size: 0 });
+      }
+
+      const savedChannels = Array.isArray(saved.channels)
+        ? saved.channels.filter((value): value is string => typeof value === "string")
+        : [];
+      const nextChannels: Record<ChannelId, boolean> = {
+        instagram: savedChannels.includes("instagram"),
+        pinterest: savedChannels.includes("pinterest"),
+      };
+      setChannels(nextChannels);
+
+      const toneMatch = TONES.find((t) => t.label === saved.tone);
+      if (toneMatch) setTone(toneMatch.id);
+      const angleMatch = ANGLES.find((a) => a.label === saved.angle);
+      if (angleMatch) setAngle(angleMatch.id);
+
+      const nextCopy: PromotionCopy = {
+        instagramCaption: readString(saved.instagramCaption),
+        pinterestTitle: readString(saved.pinterestTitle),
+        pinterestDescription: readString(saved.pinterestDescription),
+        hashtags: readString(saved.hashtags),
+      };
+      copyRef.current = nextCopy;
+      setInstagramCaption(nextCopy.instagramCaption);
+      setPinterestTitle(nextCopy.pinterestTitle);
+      setPinterestDescription(nextCopy.pinterestDescription);
+      setHashtags(nextCopy.hashtags);
+
+      const draftContext = readDraftContext(saved);
+      setPublishPlatform(draftContext.platform);
+      setAccountId("");
+      setAccountUnavailableNotice(null);
+      setPendingDraftAccountId(draftContext.accountId ?? null);
+
+      const scheduledAt = typeof saved.scheduledAt === "string" ? saved.scheduledAt : null;
+      const { date, time } = splitLocalDateTime(scheduledAt);
+      setScheduleDate(date);
+      setScheduleTime(time);
+    } catch {
+      // Partial or corrupt local draft data should leave Create usable.
     }
-
-    const nextChannels: Record<ChannelId, boolean> = {
-      instagram: saved.channels.includes("instagram"),
-      pinterest: saved.channels.includes("pinterest"),
-    };
-    setChannels(nextChannels);
-
-    const toneMatch = TONES.find((t) => t.label === saved.tone);
-    if (toneMatch) setTone(toneMatch.id);
-    const angleMatch = ANGLES.find((a) => a.label === saved.angle);
-    if (angleMatch) setAngle(angleMatch.id);
-
-    const nextCopy: PromotionCopy = {
-      instagramCaption: saved.instagramCaption,
-      pinterestTitle: saved.pinterestTitle,
-      pinterestDescription: saved.pinterestDescription,
-      hashtags: saved.hashtags,
-    };
-    copyRef.current = nextCopy;
-    setInstagramCaption(nextCopy.instagramCaption);
-    setPinterestTitle(nextCopy.pinterestTitle);
-    setPinterestDescription(nextCopy.pinterestDescription);
-    setHashtags(nextCopy.hashtags);
-
-    const { date, time } = splitLocalDateTime(saved.scheduledAt);
-    setScheduleDate(date);
-    setScheduleTime(time);
   }, [promotionId]);
 
   useEffect(() => {
@@ -696,8 +745,10 @@ export function CreatePromotionForm({
       setChannels(nextChannels);
     }
 
-    setPublishPlatform(sourcePrefill.platform);
+    setPublishPlatform(isPublishPlatform(sourcePrefill.platform) ? sourcePrefill.platform : "x");
+    setPendingDraftAccountId(null);
     setAccountId("");
+    setAccountUnavailableNotice(null);
     setGenerateError(null);
     setScheduleError(null);
     setSaveNotice(
@@ -738,6 +789,20 @@ export function CreatePromotionForm({
     if (!match) return;
     applyTemplate(match);
   }, [templateId, templates]);
+
+  useEffect(() => {
+    if (!pendingDraftAccountId) return;
+    // This list comes from the owner-scoped connected-accounts API. Scheduling still checks ownership on the server.
+    const restored = restoreDraftAccount(
+      publishPlatform,
+      pendingDraftAccountId,
+      accountsLoaded ? connectedAccounts : null,
+    );
+    if (restored.status === "pending") return;
+    setPendingDraftAccountId(null);
+    setAccountId(restored.status === "restored" ? restored.accountId : "");
+    setAccountUnavailableNotice(draftAccountRestoreNotice(restored));
+  }, [pendingDraftAccountId, publishPlatform, accountsLoaded, connectedAccounts]);
 
   const loadConnectedAccounts = useCallback(async () => {
     try {
@@ -867,6 +932,7 @@ export function CreatePromotionForm({
       channelIds,
       copyRef.current,
       scheduledAt,
+      draftContextForStorage(publishPlatform, accountId),
       draftId ?? undefined,
     );
     try {
@@ -1124,6 +1190,7 @@ export function CreatePromotionForm({
         pinterestDescription: copyRef.current.pinterestDescription.trim(),
         hashtags: copyRef.current.hashtags.trim(),
         imageUrl: uploadedImage?.imageUrl ?? subject.image ?? null,
+        ...templateBriefFromCreate(brief),
       });
       setTemplateError(null);
       setTemplateNotice(`Saved reusable template: ${saved.name}`);
@@ -1378,7 +1445,7 @@ export function CreatePromotionForm({
                 value={publishPlatform}
                 onChange={(e) => {
                   setPublishPlatform(e.target.value as PublishPlatform);
-                  setAccountId("");
+                  clearAccountSelection();
                 }}
                 aria-describedby={testOnlyPlatform ? "promi-test-platform-note" : undefined}
                 className={DATE_TIME_FIELD}
@@ -1396,7 +1463,11 @@ export function CreatePromotionForm({
                 <select
                   id="promi-connected-account"
                   value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
+                  onChange={(e) => {
+                    setPendingDraftAccountId(null);
+                    setAccountUnavailableNotice(null);
+                    setAccountId(e.target.value);
+                  }}
                   className={DATE_TIME_FIELD}
                 >
                   <option value="">Most recently connected {platformLabel(publishPlatform)} account</option>
@@ -1409,6 +1480,11 @@ export function CreatePromotionForm({
               </div>
             ) : null}
           </div>
+          {accountUnavailableNotice ? (
+            <p role="status" className="text-xs text-zinc-600 dark:text-zinc-300">
+              {accountUnavailableNotice}
+            </p>
+          ) : null}
           {testOnlyPlatform ? (
             <p
               id="promi-test-platform-note"
@@ -1502,7 +1578,7 @@ export function CreatePromotionForm({
                   <li key={template.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2 text-xs dark:border-zinc-700">
                     <div className="min-w-0">
                       <p className="truncate font-medium text-zinc-800 dark:text-zinc-100">{template.name}</p>
-                      <p className="text-zinc-500 dark:text-zinc-400">{platformLabel(template.platform)} · updated {formatAt(template.updatedAt)}</p>
+                      <p className="text-zinc-500 dark:text-zinc-400">{platformLabel(isPublishPlatform(template.platform) ? template.platform : "x")} · updated {formatAt(template.updatedAt)}</p>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button

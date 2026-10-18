@@ -47,6 +47,13 @@ export type Promotion = {
   pinterestTitle: string;
   pinterestDescription: string;
   hashtags: string;
+  /** Absent on drafts saved before Phase 15.2F; treat those as X. */
+  platform?: "x" | "instagram" | "facebook";
+  /**
+   * Selected X account. Absent when the draft uses the most recently connected account,
+   * or when the platform is Instagram or Facebook.
+   */
+  accountId?: string;
   /** ISO 8601 date-time when the promotion should go live; null if not scheduled yet. */
   scheduledAt: string | null;
   status: PromotionStatus;

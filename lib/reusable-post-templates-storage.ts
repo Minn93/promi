@@ -1,4 +1,5 @@
 import { readPromiBrowserOwnerId } from "./browser-owner-id";
+import { templateBriefFromScheduledPost, type StoredTemplateBrief } from "./draft-template-context";
 import { getClientPlanTier, getPlanConfig, isLimitReached } from "@/src/lib/plans/config";
 
 type PublishPlatform = "x" | "instagram" | "facebook";
@@ -15,12 +16,21 @@ export type ReusablePostTemplate = {
   pinterestDescription: string;
   hashtags: string;
   imageUrl: string | null;
+  /**
+   * Reusable campaign brief. Absent on templates saved before Phase 15.2F;
+   * applying those leaves the current brief unchanged. Account identity is not stored.
+   */
+  productName?: string;
+  productDescription?: string;
+  productPrice?: string;
+  productUrl?: string;
   createdAt: string;
   updatedAt: string;
 };
 
 type ScheduledPostSource = {
   id: string;
+  productName?: string;
   platform: PublishPlatform;
   channels: unknown;
   contentPayload: unknown;
@@ -168,7 +178,7 @@ export function upsertReusablePostTemplate(template: Omit<ReusablePostTemplate, 
   const existing = loaded.items;
   const now = new Date().toISOString();
   const id = template.id ?? crypto.randomUUID();
-  const prev = existing.find((item) => item.id === id);
+  const prev = existing.find((item) => item?.id === id);
   if (!prev) {
     const plan = getPlanConfig(getClientPlanTier());
     if (isLimitReached(existing.length, plan.limits.reusableTemplates)) {
@@ -187,6 +197,7 @@ export function upsertReusablePostTemplate(template: Omit<ReusablePostTemplate, 
     pinterestDescription: template.pinterestDescription,
     hashtags: template.hashtags,
     imageUrl: template.imageUrl,
+    ...storedTemplateBrief(template),
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
   };
@@ -207,12 +218,21 @@ export function removeReusablePostTemplate(id: string): void {
     throw new Error("localStorage is not available");
   }
   const loaded = loadTemplates();
-  const next = loaded.items.filter((item) => item.id !== id);
+  const next = loaded.items.filter((item) => item?.id !== id);
   try {
     writeTemplates(next, loaded.legacyAdoptionPending);
   } catch {
     throw new Error("Could not update reusable templates in localStorage");
   }
+}
+
+function storedTemplateBrief(template: StoredTemplateBrief): StoredTemplateBrief {
+  const stored: StoredTemplateBrief = {};
+  if (typeof template.productName === "string") stored.productName = template.productName;
+  if (typeof template.productDescription === "string") stored.productDescription = template.productDescription;
+  if (typeof template.productPrice === "string") stored.productPrice = template.productPrice;
+  if (typeof template.productUrl === "string") stored.productUrl = template.productUrl;
+  return stored;
 }
 
 function buildTemplateFromScheduledPost(source: ScheduledPostSource): Omit<ReusablePostTemplate, "id" | "name" | "createdAt" | "updatedAt"> {
@@ -228,6 +248,7 @@ function buildTemplateFromScheduledPost(source: ScheduledPostSource): Omit<Reusa
     pinterestDescription: readString(payload.pinterestDescription).trim(),
     hashtags: readString(payload.hashtags).trim(),
     imageUrl: source.imageUrl?.trim() || null,
+    ...templateBriefFromScheduledPost(source),
   };
 }
 
