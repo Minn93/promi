@@ -27,7 +27,7 @@ export const PLAN_CONFIG: Record<PlanTier, PlanConfig> = {
     label: "Free",
     limits: {
       connectedAccounts: 1,
-      scheduledPostsActive: 5, // TEMP preview smoke test only — restore to 15 immediately after Phase 15.2G
+      scheduledPostsActive: 15,
       reusableTemplates: 5,
       analyticsMaxDays: 30,
     },
