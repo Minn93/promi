@@ -3,9 +3,15 @@ import { describe, it } from "node:test";
 import {
   ACTIVE_SCHEDULED_POST_STATUSES,
   activeScheduledPostsWhere,
+  canCancelScheduledPostInUi,
+  canRescheduleScheduledPost,
+  cancelUnavailableReason,
+  interpretOptimisticCancel,
   isActiveScheduleLimitReached,
   isActiveScheduledPostStatus,
+  planInPlaceReschedule,
   planScheduledRetry,
+  scheduledPostEditPath,
   type ScheduledRetryPlan,
   type ScheduledRetryPost,
 } from "./active-scheduled-posts";
@@ -102,5 +108,94 @@ describe("scheduled retry capacity", () => {
     const committed = commitRetry(original, plan, []);
     assert.deepEqual(committed.post, original);
     assert.deepEqual(committed.history, []);
+  });
+
+  it("still blocks retry at the temporary Free smoke limit of 5", () => {
+    const plan = planScheduledRetry({
+      post: failedPost("failed"),
+      activeCount: 5,
+      limit: 5,
+      now: NOW,
+    });
+    assert.deepEqual(plan, { action: "plan_limit" });
+  });
+});
+
+describe("overdue cancel and processing protection", () => {
+  it("allows cancel for overdue scheduled posts in the UI", () => {
+    assert.equal(canCancelScheduledPostInUi("scheduled"), true);
+    assert.equal(cancelUnavailableReason("scheduled"), null);
+  });
+
+  it("rejects processing cancel in the UI", () => {
+    assert.equal(canCancelScheduledPostInUi("processing"), false);
+    assert.equal(
+      cancelUnavailableReason("processing"),
+      "Can't cancel: this post is being published right now.",
+    );
+  });
+
+  it("disables cancel for published and cancelled rows", () => {
+    assert.equal(canCancelScheduledPostInUi("published"), false);
+    assert.equal(canCancelScheduledPostInUi("cancelled"), false);
+  });
+});
+
+describe("in-place reschedule semantics", () => {
+  it("routes reschedule to the existing edit path for scheduled posts", () => {
+    assert.equal(canRescheduleScheduledPost("scheduled"), true);
+    assert.equal(scheduledPostEditPath("abc-123"), "/scheduled/abc-123/edit");
+  });
+
+  it("does not allow reschedule for processing, published, or cancelled", () => {
+    for (const status of ["processing", "published", "cancelled", "failed", "needs_reconnect"]) {
+      assert.equal(canRescheduleScheduledPost(status), false);
+    }
+  });
+
+  it("keeps the same active slot at or over the plan limit", () => {
+    const atLimit = planInPlaceReschedule({ status: "scheduled", activeCount: 5, limit: 5 });
+    assert.deepEqual(atLimit, { action: "edit", consumesNewSlot: false });
+    const overLimit = planInPlaceReschedule({ status: "scheduled", activeCount: 8, limit: 5 });
+    assert.deepEqual(overLimit, { action: "edit", consumesNewSlot: false });
+  });
+
+  it("rejects in-place reschedule for non-scheduled statuses", () => {
+    assert.deepEqual(
+      planInPlaceReschedule({ status: "processing", activeCount: 0, limit: 5 }),
+      { action: "reject_status" },
+    );
+  });
+});
+
+describe("new schedule remains blocked at limit", () => {
+  it("treats active_count >= limit as full for create", () => {
+    assert.equal(isActiveScheduleLimitReached(5, 5), true);
+    assert.equal(isActiveScheduleLimitReached(8, 5), true);
+    assert.equal(isActiveScheduleLimitReached(4, 5), false);
+  });
+});
+
+describe("optimistic cancel race", () => {
+  it("writes cancelled history only when the scheduled update wins", () => {
+    const won = interpretOptimisticCancel({ updatedCount: 1, currentStatus: "cancelled" });
+    assert.deepEqual(won, { action: "cancelled", writeHistory: true });
+  });
+
+  it("returns conflict with no history when processing already claimed the row", () => {
+    const lost = interpretOptimisticCancel({ updatedCount: 0, currentStatus: "processing" });
+    assert.deepEqual(lost, { action: "conflict", writeHistory: false });
+  });
+
+  it("returns already_cancelled with no new history when the row is already cancelled", () => {
+    const prior = interpretOptimisticCancel({ updatedCount: 0, currentStatus: "cancelled" });
+    assert.deepEqual(prior, { action: "already_cancelled", writeHistory: false });
+  });
+
+  it("returns missing when the owner row is gone", () => {
+    assert.deepEqual(
+      interpretOptimisticCancel({ updatedCount: 0, currentStatus: null }),
+      { action: "missing", writeHistory: false },
+    );
   });
 });

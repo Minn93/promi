@@ -89,3 +89,61 @@ export function planScheduledRetry(input: {
     history: { eventType: "retried", message: "Requeued for retry." },
   };
 }
+
+/** Cancel is allowed for any `scheduled` row, including overdue. Processing stays blocked in UI. */
+export function canCancelScheduledPostInUi(status: string): boolean {
+  return status === "scheduled";
+}
+
+export function cancelUnavailableReason(status: string): string | null {
+  if (status === "processing") {
+    return "Can't cancel: this post is being published right now.";
+  }
+  return null;
+}
+
+/** Reschedule is in-place edit of an existing scheduled row — never a new create. */
+export function canRescheduleScheduledPost(status: string): boolean {
+  return status === "scheduled";
+}
+
+export function scheduledPostEditPath(id: string): string {
+  return `/scheduled/${encodeURIComponent(id)}/edit`;
+}
+
+/**
+ * In-place reschedule keeps the same id and status=scheduled, so active_count is unchanged
+ * and plan capacity does not apply (unlike POST create or failed/needs_reconnect retry).
+ */
+export function planInPlaceReschedule(input: {
+  status: string;
+  activeCount: number;
+  limit: number;
+}): { action: "edit"; consumesNewSlot: false } | { action: "reject_status" } {
+  if (input.status !== "scheduled") return { action: "reject_status" };
+  void input.activeCount;
+  void input.limit;
+  return { action: "edit", consumesNewSlot: false };
+}
+
+export type OptimisticCancelResult =
+  | { action: "cancelled"; writeHistory: true }
+  | { action: "already_cancelled"; writeHistory: false }
+  | { action: "conflict"; writeHistory: false }
+  | { action: "missing"; writeHistory: false };
+
+/**
+ * After `updateMany` where status=scheduled: one update means cancel won;
+ * zero means missing, already cancelled, or scheduler/other state won (conflict).
+ */
+export function interpretOptimisticCancel(input: {
+  updatedCount: number;
+  currentStatus: string | null;
+}): OptimisticCancelResult {
+  if (input.updatedCount === 1) return { action: "cancelled", writeHistory: true };
+  if (input.currentStatus == null) return { action: "missing", writeHistory: false };
+  if (input.currentStatus === "cancelled") {
+    return { action: "already_cancelled", writeHistory: false };
+  }
+  return { action: "conflict", writeHistory: false };
+}

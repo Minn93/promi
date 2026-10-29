@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { interpretOptimisticCancel } from "@/lib/active-scheduled-posts";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
 import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
@@ -71,41 +72,73 @@ export async function PATCH(request: Request, { params }: Params) {
   const message = asNonEmptyString(body.message) ?? "Scheduled post cancelled.";
 
   try {
-    const updated = await prisma.$transaction(async (tx) => {
-      const existing = await tx.scheduledPost.findFirst({
-        where: { id: validId, ownerId },
-      });
-      if (!existing) return null;
-
-      if (existing.status === "cancelled") {
-        return existing;
-      }
-
-      const row = await tx.scheduledPost.update({
-        where: { id: validId },
+    const outcome = await prisma.$transaction(async (tx) => {
+      const updateResult = await tx.scheduledPost.updateMany({
+        where: {
+          id: validId,
+          ownerId,
+          status: "scheduled",
+        },
         data: {
           status: "cancelled",
           lastError: null,
         },
       });
 
-      await tx.postHistory.create({
-        data: {
-          ownerId,
-          scheduledPostId: row.id,
-          eventType: "cancelled",
-          message,
-        },
-      });
+      if (updateResult.count === 1) {
+        const row = await tx.scheduledPost.findFirst({
+          where: { id: validId, ownerId },
+        });
+        if (!row) {
+          return { kind: "missing" as const };
+        }
+        await tx.postHistory.create({
+          data: {
+            ownerId,
+            scheduledPostId: row.id,
+            eventType: "cancelled",
+            message,
+          },
+        });
+        return { kind: "cancelled" as const, row };
+      }
 
-      return row;
+      const existing = await tx.scheduledPost.findFirst({
+        where: { id: validId, ownerId },
+        select: { id: true, status: true },
+      });
+      const interpreted = interpretOptimisticCancel({
+        updatedCount: updateResult.count,
+        currentStatus: existing?.status ?? null,
+      });
+      if (interpreted.action === "missing") {
+        return { kind: "missing" as const };
+      }
+      if (interpreted.action === "already_cancelled" && existing) {
+        const row = await tx.scheduledPost.findFirst({
+          where: { id: validId, ownerId },
+        });
+        return row ? { kind: "already_cancelled" as const, row } : { kind: "missing" as const };
+      }
+      return {
+        kind: "conflict" as const,
+        status: existing?.status ?? "unknown",
+      };
     });
 
-    if (!updated) {
+    if (outcome.kind === "missing") {
       return apiError({ status: 404, code: "NOT_FOUND", message: "Scheduled post not found." });
     }
+    if (outcome.kind === "conflict") {
+      return apiError({
+        status: 409,
+        code: "CANCEL_CONFLICT",
+        message: "This post can no longer be cancelled because its status changed.",
+        details: `status=${outcome.status}`,
+      });
+    }
 
-    return NextResponse.json({ data: updated });
+    return NextResponse.json({ data: outcome.row });
   } catch (err) {
     const details = err instanceof Error ? err.message : "Unknown error";
     return apiError({ status: 500, code: "CANCEL_FAILED", message: "Failed to cancel scheduled post.", details });

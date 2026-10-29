@@ -3,7 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getClientPlanTier, getPlanConfig, limitLabel } from "@/src/lib/plans/config";
+import {
+  canCancelScheduledPostInUi,
+  canRescheduleScheduledPost,
+  cancelUnavailableReason,
+  scheduledPostEditPath,
+} from "@/lib/active-scheduled-posts";
 import { getPostStatusCopy } from "@/lib/post-status-copy";
 import {
   isTestOnlyPlatform,
@@ -13,6 +18,7 @@ import {
 import { PUBLISHING_TIMING_NOTE, PUBLISHING_TIMING_SHORT } from "@/lib/publishing-timing-copy";
 import { toUserFacingError } from "@/lib/user-facing-error";
 import { isUploadedScheduledImageUrl } from "@/src/lib/media/image-upload";
+import { getClientPlanTier, getPlanConfig, limitLabel } from "@/src/lib/plans/config";
 
 type ScheduledPost = {
   id: string;
@@ -158,11 +164,6 @@ function platformLabel(platform: ScheduledPost["platform"]): string {
   return "Facebook";
 }
 
-function cancelUnavailableReason(post: Pick<ScheduledPost, "status">, isOverdue: boolean): string | null {
-  if (post.status === "processing") return "Can't cancel: this post is being published right now.";
-  if (isOverdue) return "Can't cancel: this post is already due and may be publishing now.";
-  return null;
-}
 
 /** The retry API accepts failed and needs_reconnect posts; reconnect failures become retryable once the account is fixed. */
 function canRetryPost(post: Pick<ScheduledPost, "status" | "errorCode">): boolean {
@@ -881,23 +882,37 @@ export function ServerScheduledPostsList() {
                       {cell.posts.slice(0, 2).map((post) => {
                         const scheduledAtMs = new Date(post.scheduledAt).getTime();
                         const isOverdue = Number.isFinite(scheduledAtMs) && post.status === "scheduled" && scheduledAtMs <= nowMs;
-                        const href =
-                          post.status === "scheduled"
-                            ? `/scheduled/${encodeURIComponent(post.id)}/edit`
-                            : `/create?sourcePostId=${encodeURIComponent(post.id)}&mode=reschedule`;
-                        return (
-                          <Link
-                            key={post.id}
-                            href={href}
-                            onClick={(event) => event.stopPropagation()}
-                            className="block rounded border border-zinc-200 px-1.5 py-1 text-[11px] text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                            title={readPreview(post.contentPayload)}
-                          >
+                        const chipClassName =
+                          "block rounded border border-zinc-200 px-1.5 py-1 text-[11px] text-zinc-700 dark:border-zinc-800 dark:text-zinc-300";
+                        const chipBody = (
+                          <>
                             <p className="truncate">{platformLabel(post.platform)} • {formatTimeOnly(post.scheduledAt)}</p>
                             <p className="truncate text-zinc-500 dark:text-zinc-400">
                               {getPostStatusCopy(post.status, { isOverdue }).label}
                             </p>
-                          </Link>
+                          </>
+                        );
+                        if (canRescheduleScheduledPost(post.status)) {
+                          return (
+                            <Link
+                              key={post.id}
+                              href={scheduledPostEditPath(post.id)}
+                              onClick={(event) => event.stopPropagation()}
+                              className={`${chipClassName} hover:bg-zinc-100 dark:hover:bg-zinc-900`}
+                              title={readPreview(post.contentPayload)}
+                            >
+                              {chipBody}
+                            </Link>
+                          );
+                        }
+                        return (
+                          <div
+                            key={post.id}
+                            className={chipClassName}
+                            title={readPreview(post.contentPayload)}
+                          >
+                            {chipBody}
+                          </div>
                         );
                       })}
                       {cell.posts.length > 2 ? (
@@ -951,7 +966,7 @@ export function ServerScheduledPostsList() {
                       <div className="mt-2 flex flex-col gap-2 *:text-center sm:flex-row sm:flex-wrap">
                         {editable ? (
                           <Link
-                            href={`/scheduled/${encodeURIComponent(p.id)}/edit`}
+                            href={scheduledPostEditPath(p.id)}
                             className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                           >
                             Edit
@@ -991,29 +1006,31 @@ export function ServerScheduledPostsList() {
                         >
                           Duplicate
                         </Link>
-                        <Link
-                          href={`/create?sourcePostId=${encodeURIComponent(p.id)}&mode=reschedule`}
-                          className={`rounded-md border px-2 py-1 text-xs ${
-                            actionBusy
-                              ? "pointer-events-none border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
-                              : "border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                          }`}
-                        >
-                          Reschedule
-                        </Link>
+                        {canRescheduleScheduledPost(p.status) ? (
+                          <Link
+                            href={scheduledPostEditPath(p.id)}
+                            className={`rounded-md border px-2 py-1 text-xs ${
+                              actionBusy
+                                ? "pointer-events-none border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
+                                : "border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                            }`}
+                          >
+                            Reschedule
+                          </Link>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => void handleCancel(p.id)}
-                          disabled={actionBusy || p.status === "cancelled" || p.status === "published" || p.status === "processing" || isOverdue}
-                          aria-describedby={cancelUnavailableReason(p, isOverdue) ? `cancel-reason-cal-${p.id}` : undefined}
+                          disabled={actionBusy || !canCancelScheduledPostInUi(p.status)}
+                          aria-describedby={cancelUnavailableReason(p.status) ? `cancel-reason-cal-${p.id}` : undefined}
                           className={`rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
                         >
                           {cancellingId === p.id ? "Canceling…" : "Cancel"}
                         </button>
                       </div>
-                      {cancelUnavailableReason(p, isOverdue) ? (
+                      {cancelUnavailableReason(p.status) ? (
                         <p id={`cancel-reason-cal-${p.id}`} className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                          {cancelUnavailableReason(p, isOverdue)}
+                          {cancelUnavailableReason(p.status)}
                         </p>
                       ) : null}
                     </li>
@@ -1117,7 +1134,7 @@ export function ServerScheduledPostsList() {
                   <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-stretch">
                     {editable ? (
                       <Link
-                        href={`/scheduled/${encodeURIComponent(p.id)}/edit`}
+                        href={scheduledPostEditPath(p.id)}
                         className={`promi-press inline-flex flex-1 items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-[background-color,box-shadow,transform,color] duration-200 ease-out sm:flex-none ${
                           actionBusy
                             ? "pointer-events-none border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
@@ -1175,28 +1192,30 @@ export function ServerScheduledPostsList() {
                     >
                       Duplicate
                     </Link>
-                    <Link
-                      href={`/create?sourcePostId=${encodeURIComponent(p.id)}&mode=reschedule`}
-                      className={`promi-press inline-flex flex-1 items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-[background-color,box-shadow,transform,color] duration-200 ease-out sm:flex-none ${
-                        actionBusy
-                          ? "pointer-events-none border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
-                          : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
-                      }`}
-                    >
-                      Reschedule
-                    </Link>
+                    {canRescheduleScheduledPost(p.status) ? (
+                      <Link
+                        href={scheduledPostEditPath(p.id)}
+                        className={`promi-press inline-flex flex-1 items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-[background-color,box-shadow,transform,color] duration-200 ease-out sm:flex-none ${
+                          actionBusy
+                            ? "pointer-events-none border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
+                            : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-900"
+                        }`}
+                      >
+                        Reschedule
+                      </Link>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void handleCancel(p.id)}
-                      disabled={actionBusy || p.status === "cancelled" || p.status === "published" || p.status === "processing" || isOverdue}
-                      aria-describedby={cancelUnavailableReason(p, isOverdue) ? `cancel-reason-${p.id}` : undefined}
+                      disabled={actionBusy || !canCancelScheduledPostInUi(p.status)}
+                      aria-describedby={cancelUnavailableReason(p.status) ? `cancel-reason-${p.id}` : undefined}
                       className="promi-press inline-flex flex-1 items-center justify-center rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition-[background-color,box-shadow,transform,color] duration-200 ease-out hover:border-red-200/80 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-red-900/50 dark:hover:bg-red-950/40 dark:hover:text-red-300 sm:flex-none"
                     >
                       {cancellingId === p.id ? "Canceling…" : "Cancel"}
                     </button>
-                    {cancelUnavailableReason(p, isOverdue) ? (
+                    {cancelUnavailableReason(p.status) ? (
                       <p id={`cancel-reason-${p.id}`} className="text-xs text-zinc-500 dark:text-zinc-400 sm:max-w-[11rem]">
-                        {cancelUnavailableReason(p, isOverdue)}
+                        {cancelUnavailableReason(p.status)}
                       </p>
                     ) : null}
                   </div>
