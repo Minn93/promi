@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { activeScheduledPostsWhere, isActiveScheduleLimitReached } from "@/lib/active-scheduled-posts";
 import { apiError } from "@/lib/api-errors";
 import type { InternalPostStatus } from "@/lib/post-status";
 import { prisma } from "@/lib/prisma";
 import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { checkScheduledImageUrlForOwner } from "@/src/lib/media/image-storage";
-import { getPlanConfig, isLimitReached } from "@/src/lib/plans/config";
+import { getPlanConfig } from "@/src/lib/plans/config";
 import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
 export const runtime = "nodejs";
@@ -165,12 +166,9 @@ export async function POST(request: Request) {
   const planTier = await getPlanTierForOwner(ownerId);
   const plan = getPlanConfig(planTier);
   const activeScheduledCount = await prisma.scheduledPost.count({
-    where: {
-      ownerId,
-      status: { in: ["scheduled", "processing", "failed", "needs_reconnect"] },
-    },
+    where: activeScheduledPostsWhere(ownerId),
   });
-  if (isLimitReached(activeScheduledCount, plan.limits.scheduledPostsActive)) {
+  if (isActiveScheduleLimitReached(activeScheduledCount, plan.limits.scheduledPostsActive)) {
     return apiError({
       status: 403,
       code: "PLAN_LIMIT_SCHEDULED_POSTS",
@@ -259,10 +257,7 @@ export async function GET(request: Request) {
   if (summary === "active_count") {
     try {
       const activeCount = await prisma.scheduledPost.count({
-        where: {
-          ownerId,
-          status: { in: ["scheduled", "processing", "failed", "needs_reconnect"] },
-        },
+        where: activeScheduledPostsWhere(ownerId),
       });
       return NextResponse.json(
         { data: { activeScheduledPosts: activeCount } },

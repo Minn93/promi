@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
+import { ACTIVE_SCHEDULED_POST_STATUSES } from "@/lib/active-scheduled-posts";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
 import { checkOwnerAccountGates } from "@/src/lib/auth/user-status";
@@ -84,7 +85,7 @@ export default async function OpsPage() {
   ] = await Promise.all([
     prisma.connectedAccount.count(),
     prisma.connectedAccount.count({ where: { status: { in: ["expired", "revoked", "error"] } } }),
-    prisma.scheduledPost.count({ where: { status: { in: ["scheduled", "processing", "failed", "needs_reconnect"] } } }),
+    prisma.scheduledPost.count({ where: { status: { in: [...ACTIVE_SCHEDULED_POST_STATUSES] } } }),
     prisma.scheduledPost.count({ where: { status: "published" } }),
     prisma.scheduledPost.count({ where: { status: "failed" } }),
     prisma.scheduledPost.count({ where: { status: "needs_reconnect" } }),

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { activeScheduledPostsWhere, planScheduledRetry } from "@/lib/active-scheduled-posts";
 import { apiError } from "@/lib/api-errors";
 import { prisma } from "@/lib/prisma";
 import { accountGateApiError, checkOwnerAccountGates } from "@/src/lib/auth/user-status";
 import { getCurrentOwnerId } from "@/src/lib/auth/session";
+import { getPlanConfig } from "@/src/lib/plans/config";
+import { getPlanTierForOwner } from "@/src/lib/plans/server";
 
 export const runtime = "nodejs";
 
@@ -30,47 +33,69 @@ export async function POST(_: Request, { params }: Params) {
     return apiError({ status: 400, code: "INVALID_ID", message: "Invalid scheduled post id." });
   }
 
+  const planTier = await getPlanTierForOwner(ownerId);
+  const plan = getPlanConfig(planTier);
+
   try {
-    const retried = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const existing = await tx.scheduledPost.findFirst({
         where: { id: validId, ownerId },
       });
-      if (!existing) return null;
-      if (existing.status === "published" || existing.status === "cancelled" || existing.status === "processing") {
-        throw new Error(`Cannot retry post in status ${existing.status}.`);
+      if (!existing) return { type: "missing" as const };
+
+      const needsCapacity = existing.status === "failed" || existing.status === "needs_reconnect";
+      const activeScheduledCount = needsCapacity
+        ? await tx.scheduledPost.count({ where: activeScheduledPostsWhere(ownerId) })
+        : 0;
+      const decision = planScheduledRetry({
+        post: existing,
+        activeCount: activeScheduledCount,
+        limit: plan.limits.scheduledPostsActive,
+        now: new Date(),
+      });
+
+      if (decision.action === "reject_status") {
+        throw new Error(decision.message);
       }
-      if (existing.status !== "failed" && existing.status !== "needs_reconnect") {
-        return existing;
+      if (decision.action === "unchanged") {
+        return { type: "ok" as const, row: existing };
+      }
+      if (decision.action === "plan_limit") {
+        return { type: "plan_limit" as const, activeScheduledCount };
+      }
+      if (decision.action !== "retry") {
+        return { type: "missing" as const };
       }
 
-      const now = new Date();
       const row = await tx.scheduledPost.update({
         where: { id: validId },
-        data: {
-          status: "scheduled",
-          scheduledAt: now,
-          processingStartedAt: null,
-          lastError: null,
-          errorMessage: null,
-          errorCode: null,
-        },
+        data: decision.update,
       });
 
       await tx.postHistory.create({
         data: {
           ownerId,
           scheduledPostId: row.id,
-          eventType: "retried",
-          message: "Requeued for retry.",
+          eventType: decision.history.eventType,
+          message: decision.history.message,
         },
       });
-      return row;
+      return { type: "ok" as const, row };
     });
 
-    if (!retried) {
+    if (result.type === "missing") {
       return apiError({ status: 404, code: "NOT_FOUND", message: "Scheduled post not found." });
     }
-    return NextResponse.json({ data: retried });
+    if (result.type === "plan_limit") {
+      return apiError({
+        status: 403,
+        code: "PLAN_LIMIT_SCHEDULED_POSTS",
+        message:
+          `You have reached your ${plan.label} limit of ${plan.limits.scheduledPostsActive} active scheduled posts. Upgrade to Pro to schedule more.`,
+        details: `owner=${ownerId}; plan=${planTier}; activeScheduled=${result.activeScheduledCount}`,
+      });
+    }
+    return NextResponse.json({ data: result.row });
   } catch (err) {
     const details = err instanceof Error ? err.message : "Unknown error";
     return apiError({
